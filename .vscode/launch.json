@@ -1,0 +1,26 @@
+{
+  "configurations": [
+    {
+      "type": "cppvsdbg",
+      "request": "launch",
+      "name": "cargo run -p first",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}\\target\\debug\\first.exe",
+      "environment": [
+        {
+          "name": "RUST_BACKTRACE",
+          "value": "short"
+        },
+        {
+          "name": "RUSTC_TOOLCHAIN",
+          "value": "C:\\Users\\egors\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc"
+        }
+      ],
+      "args": [],
+      "sourceFileMap": {},
+      "osx": {
+        "MIMode": "lldb"
+      }
+    }
+  ]
+}
