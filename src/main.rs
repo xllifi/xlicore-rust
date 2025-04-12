@@ -6,7 +6,7 @@ use utils::downloader::{DownloaderFile, DownloaderFileProgress, DownloaderFileTy
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-  colog::init();
+  femme::start();
   let file: DownloaderFile = DownloaderFile {
     url: "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json".into(),
     dir: "store".into(),
@@ -17,7 +17,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     retries: 0,
   };
   let opts: DownloaderOpts = DownloaderOpts {
-    on_download_progress: dl_progress,
+    on_download_progress: |current_progress: DownloaderFileProgress, chunk: Bytes| {
+      info!(
+        "Downloaded {0}{1} bytes ({2} more than last)",
+        current_progress.downloaded_bytes,
+        current_progress.total_bytes,
+        current_progress.previous_diff_bytes
+      )
+    },
+    on_download_finish: |file: DownloaderFile| {
+      info!("Finished downloading {:?}", file.name)
+    },
     overwrite: Some(false),
     get_content: Some(false),
     total_size: None,
@@ -28,15 +38,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let dl = utils::downloader::Downloader::new(temp_suffix, None);
   dl.single_download(file, Some(&opts)).await?;
 
-  debug!("{:?}", opts);
+  info!("{:?}", opts);
   Ok(())
-}
-
-fn dl_progress(current_progress: DownloaderFileProgress, chunk: Bytes) {
-  debug!(
-    "Downloaded {0}{1} bytes ({2} more than last)",
-    current_progress.downloaded_bytes,
-    current_progress.total_bytes,
-    current_progress.previous_diff_bytes
-  )
 }
