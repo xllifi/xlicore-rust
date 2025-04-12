@@ -31,7 +31,7 @@ pub struct DownloaderVerify {
 #[derive(Debug)]
 pub struct DownloaderOpts {
   pub on_download_progress: fn(current_progress: DownloaderFileProgress, chunk: Bytes),
-  // onDownloadFinish?: DownloaderCallbackOnFinish
+  pub on_download_finish: fn(file: DownloaderFile),
   pub overwrite: Option<bool>,
   pub get_content: Option<bool>,
   pub total_size: Option<u32>,

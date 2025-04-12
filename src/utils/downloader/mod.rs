@@ -60,10 +60,7 @@ impl Downloader {
       info!("Download progress: {0}/{1} bytes", downloaded, file_size);
     }
 
-    // End
     rename(&temp_path, &final_path)?;
-    assert!(fs::exists(&final_path)?);
-    debug!("{}", fs::exists(&final_path)?);
 
     Ok(())
   }
