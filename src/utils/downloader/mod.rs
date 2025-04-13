@@ -2,9 +2,9 @@ mod model;
 pub use model::*;
 
 use std::{cmp::min, time::{SystemTime, UNIX_EPOCH}};
-use log::{debug, info};
+use log::debug;
 use reqwest::Client;
-use std::{error::Error, fs::{self, create_dir_all, rename, File}, io::Write, path::Path};
+use std::{error::Error, fs::{create_dir_all, rename, File}, io::Write, path::Path};
 use url::Url;
 use futures_util::StreamExt;
 
