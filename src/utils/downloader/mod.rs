@@ -1,12 +1,19 @@
 mod model;
 pub use model::*;
 
-use std::{cmp::min, time::{SystemTime, UNIX_EPOCH}};
+use futures_util::StreamExt;
 use log::debug;
 use reqwest::Client;
-use std::{error::Error, fs::{create_dir_all, rename, File}, io::Write, path::Path};
-use url::Url;
-use futures_util::StreamExt;
+use std::{
+  cmp::min,
+  time::{SystemTime, UNIX_EPOCH},
+};
+use std::{
+  error::Error,
+  fs::{File, create_dir_all, rename},
+  io::Write,
+  path::Path,
+};
 
 impl Downloader {
   pub fn new(temp_suffix: String, default_opts: Option<DownloaderOpts>) -> Self {
@@ -17,38 +24,39 @@ impl Downloader {
     }
   }
 
-  pub async fn single_download(&self, file: DownloaderFile, opts: Option<&DownloaderOpts>) -> Result<(), Box<dyn Error>> {
-    debug!("Requested to download file {:?} with opts {:?}", file.url, opts);
+  pub async fn single_download(
+    &self,
+    file: DownloaderFile,
+    opts: Option<&DownloaderOpts>,
+  ) -> Result<(), Box<dyn Error>> {
+    debug!(
+      "Requested to download file {:?} with opts {:?}",
+      file.url, opts
+    );
 
     // Verify options
-    let url = Url::parse(&file.url)?;
-    let file_name: String;
-    if file.name.is_none() {
-      file_name = url.path_segments().unwrap().last().unwrap().into();
-    } else {
-      file_name = file.name.unwrap();
-    }
+    let file_name: String = match file.name {
+      Some(val) => val,
+      None => file.url.split('/').next_back().unwrap().into(),
+    };
     debug!("Resolved file_name: {:?}", file_name);
 
-    let resolved_opts: DownloaderOpts;
-    if self.default_opts.is_some() {
-      if opts.is_some() {
-        resolved_opts = self.default_opts.as_ref().unwrap().merge(opts.unwrap());
-      } else {
-        resolved_opts = self.default_opts.as_ref().unwrap().clone();
-      }
-    } else {
-      if opts.is_some() {
-        resolved_opts = opts.unwrap().clone()
-      } else {
-        resolved_opts = DownloaderOpts::default()
-      }
-    }
-    
+    let resolved_opts: DownloaderOpts = match &self.default_opts {
+      Some(default_opts) => match opts {
+        Some(opts) => default_opts.merge(opts),
+        None => default_opts.clone(),
+      },
+      None => match opts {
+        Some(opts) => opts.clone(),
+        None => DownloaderOpts::default(),
+      },
+    };
+
     // Execute download
 
     // Prepare request
-    let resp = self.reqwest_client
+    let resp = self
+      .reqwest_client
       .get(&file.url)
       .send()
       .await
@@ -71,8 +79,13 @@ impl Downloader {
     while let Some(item) = stream.next().await {
       let prev_downloaded = downloaded;
       let prev_time = timestamp;
-      let chunk = item.or(Err(format!("Failed to download file '{}'", final_path.to_str().unwrap())))?;
-      temp_file.write_all(&chunk).or(Err(format!("Error while writing to file")))?;
+      let chunk = item.or(Err(format!(
+        "Failed to download file '{}'",
+        final_path.to_str().unwrap()
+      )))?;
+      temp_file
+        .write_all(&chunk)
+        .or(Err("Error while writing to file".to_string()))?;
       downloaded = min(downloaded + (chunk.len() as u64), file_size);
       timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 
@@ -81,7 +94,7 @@ impl Downloader {
           file_size,
           downloaded_bytes: downloaded,
           diff_bytes: downloaded - prev_downloaded,
-          diff_time: timestamp - prev_time
+          diff_time: timestamp - prev_time,
         };
         progress_callback(progress, chunk)
       }

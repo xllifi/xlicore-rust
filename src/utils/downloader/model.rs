@@ -70,5 +70,5 @@ pub struct DownloaderFileProgress {
   pub file_size: u64,
   pub downloaded_bytes: u64,
   pub diff_bytes: u64,
-  pub diff_time: u128
+  pub diff_time: u128,
 }
