@@ -1,7 +1,8 @@
 mod download;
 mod utils;
-use std::{error::Error, str::Bytes};
-use log::{debug, info};
+use std::error::Error;
+use bytes::Bytes;
+use log::info;
 use utils::downloader::{DownloaderFile, DownloaderFileProgress, DownloaderFileTypes, DownloaderOpts};
 
 #[tokio::main]
@@ -17,17 +18,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     retries: 0,
   };
   let opts: DownloaderOpts = DownloaderOpts {
-    on_download_progress: |current_progress: DownloaderFileProgress, chunk: Bytes| {
+    on_download_progress: Some(|current_progress: DownloaderFileProgress, _chunk: Bytes| {
       info!(
-        "Downloaded {0}{1} bytes ({2} more than last)",
+        "Downloaded {0}{1} bytes (speed: {2} bytes/second)",
         current_progress.downloaded_bytes,
-        current_progress.total_bytes,
-        current_progress.previous_diff_bytes
+        current_progress.file_size,
+        if current_progress.diff_time > 0 { (current_progress.diff_bytes as u128 / current_progress.diff_time) * 1000 } else { 0 }
       )
-    },
-    on_download_finish: |file: DownloaderFile| {
+    }),
+    on_download_finish: Some(|file: DownloaderFile| {
       info!("Finished downloading {:?}", file.name)
-    },
+    }),
     overwrite: Some(false),
     get_content: Some(false),
     total_size: None,

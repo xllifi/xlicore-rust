@@ -1,7 +1,7 @@
 mod model;
 pub use model::*;
 
-use std::cmp::min;
+use std::{cmp::min, time::{SystemTime, UNIX_EPOCH}};
 use log::{debug, info};
 use reqwest::Client;
 use std::{error::Error, fs::{self, create_dir_all, rename, File}, io::Write, path::Path};
@@ -29,6 +29,21 @@ impl Downloader {
       file_name = file.name.unwrap();
     }
     debug!("Resolved file_name: {:?}", file_name);
+
+    let resolved_opts: DownloaderOpts;
+    if self.default_opts.is_some() {
+      if opts.is_some() {
+        resolved_opts = self.default_opts.as_ref().unwrap().merge(opts.unwrap());
+      } else {
+        resolved_opts = self.default_opts.as_ref().unwrap().clone();
+      }
+    } else {
+      if opts.is_some() {
+        resolved_opts = opts.unwrap().clone()
+      } else {
+        resolved_opts = DownloaderOpts::default()
+      }
+    }
     
     // Execute download
 
@@ -50,14 +65,26 @@ impl Downloader {
     create_dir_all(final_path.parent().unwrap())?;
     let mut temp_file = File::create_new(&temp_path)?;
     let mut downloaded: u64 = 0;
+    let mut timestamp: u128 = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
     let mut stream = resp.bytes_stream();
+
     while let Some(item) = stream.next().await {
-      // TODO: progress callbacks
+      let prev_downloaded = downloaded;
+      let prev_time = timestamp;
       let chunk = item.or(Err(format!("Failed to download file '{}'", final_path.to_str().unwrap())))?;
       temp_file.write_all(&chunk).or(Err(format!("Error while writing to file")))?;
-      let new = min(downloaded + (chunk.len() as u64), file_size);
-      downloaded = new;
-      info!("Download progress: {0}/{1} bytes", downloaded, file_size);
+      downloaded = min(downloaded + (chunk.len() as u64), file_size);
+      timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+
+      if let Some(progress_callback) = resolved_opts.on_download_progress {
+        let progress: DownloaderFileProgress = DownloaderFileProgress {
+          file_size,
+          downloaded_bytes: downloaded,
+          diff_bytes: downloaded - prev_downloaded,
+          diff_time: timestamp - prev_time
+        };
+        progress_callback(progress, chunk)
+      }
     }
 
     rename(&temp_path, &final_path)?;
