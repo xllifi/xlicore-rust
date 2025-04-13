@@ -53,8 +53,6 @@ impl Downloader {
     };
 
     // Execute download
-
-    // Prepare request
     let resp = self
       .reqwest_client
       .get(&file.url)
@@ -70,7 +68,9 @@ impl Downloader {
     let temp_path = Path::new(&file.dir).join(format!("{0}{1}", &file_name, &self.temp_suffix));
 
     // Write
-    create_dir_all(final_path.parent().unwrap())?;
+    if let Some(path) = final_path.parent() {
+      create_dir_all(path)?;
+    }
     let mut temp_file = File::create_new(&temp_path)?;
     let mut downloaded: u64 = 0;
     let mut timestamp: u128 = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
