@@ -1,15 +1,36 @@
 mod download;
 mod utils;
 use bytes::Bytes;
+use colored::Colorize;
+use fern::colors::{Color, ColoredLevelConfig};
 use log::info;
-use std::error::Error;
+use std::{error::Error, io::stdout};
 use utils::downloader::{
   DownloaderFile, DownloaderFileProgress, DownloaderFileTypes, DownloaderOpts,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-  femme::start();
+  let colors: ColoredLevelConfig = ColoredLevelConfig::new()
+    .debug(Color::BrightBlack)
+    .info(Color::Green)
+    .warn(Color::Yellow)
+    .error(Color::Red);
+
+  fern::Dispatch::new()
+    .format(move |out, message, record| {
+      out.finish(format_args!(
+        "{} | {} | {} > {}",
+        Colorize::bright_black(chrono::Local::now().format("%H:%M:%S").to_string().as_str()),
+        format!("{:^5}", colors.color(record.level())),
+        Colorize::cyan(record.target()),
+        message
+      ));
+    })
+    .level(log::LevelFilter::Debug)
+    .chain(stdout())
+    .apply()?;
+
   let file: DownloaderFile = DownloaderFile {
     url: "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json".into(),
     dir: "store".into(),
