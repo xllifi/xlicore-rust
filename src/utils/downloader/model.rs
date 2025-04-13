@@ -17,7 +17,7 @@ pub struct DownloaderFile {
   pub size: Option<u32>,
   pub verify: Option<DownloaderVerify>,
   pub file_type: DownloaderFileTypes,
-  pub retries: i8,
+  pub retries: u8,
 }
 
 #[derive(Debug)]
