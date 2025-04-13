@@ -14,7 +14,7 @@ pub struct DownloaderFile {
   pub url: String,
   pub dir: String,
   pub name: Option<String>,
-  pub size: Option<u32>,
+  pub size: Option<u64>,
   pub verify: Option<DownloaderVerify>,
   pub file_type: DownloaderFileTypes,
   pub retries: u8,
@@ -33,7 +33,7 @@ pub struct DownloaderOpts {
   pub on_download_finish: Option<fn(file: DownloaderFile)>,
   pub overwrite: Option<bool>,
   pub get_content: Option<bool>,
-  pub total_size: Option<u32>,
+  pub total_size: Option<u64>,
 }
 
 impl DownloaderOpts {
@@ -69,6 +69,4 @@ pub enum DownloaderAlgorithm {
 pub struct DownloaderFileProgress {
   pub file_size: u64,
   pub downloaded_bytes: u64,
-  pub diff_bytes: u64,
-  pub diff_time: u128,
 }

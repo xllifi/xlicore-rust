@@ -3,7 +3,7 @@ mod utils;
 use bytes::Bytes;
 use colored::Colorize;
 use fern::colors::{Color, ColoredLevelConfig};
-use log::info;
+use log::{debug, info};
 use std::{error::Error, io::stdout};
 use utils::downloader::{
   DownloaderFile, DownloaderFileProgress, DownloaderFileTypes, DownloaderOpts,
@@ -31,30 +31,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .chain(stdout())
     .apply()?;
 
-  let file: DownloaderFile = DownloaderFile {
-    url: "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json".into(),
+  let mut file: DownloaderFile = DownloaderFile {
+    url: "https://mirror.haku.host/100MB.test".into(),
     dir: "store".into(),
     name: None,
     size: None,
     verify: None,
     file_type: DownloaderFileTypes::Meta,
-    retries: 0,
+    retries: 2,
   };
   let opts: DownloaderOpts = DownloaderOpts {
     on_download_progress: Some(|current_progress: DownloaderFileProgress, _chunk: Bytes| {
       info!(
-        "Downloaded {0}{1} bytes (speed: {2} bytes/second)",
+        "Downloaded {0}/{1} bytes",
         current_progress.downloaded_bytes,
         current_progress.file_size,
-        if current_progress.diff_time > 0 {
-          (current_progress.diff_bytes as u128 / current_progress.diff_time) * 1000
-        } else {
-          0
-        }
       )
     }),
     on_download_finish: Some(|file: DownloaderFile| info!("Finished downloading {:?}", file.name)),
-    overwrite: Some(false),
+    overwrite: Some(true),
     get_content: Some(false),
     total_size: None,
   };
@@ -62,8 +57,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let temp_suffix: String = ".temp".into();
 
   let dl = utils::downloader::Downloader::new(temp_suffix, None);
-  dl.single_download(file, Some(&opts)).await?;
+  dl.single_download(&mut file, Some(&opts)).await?;
 
-  info!("{:?}", opts);
+  debug!("{:?}", opts);
+  debug!("{:?}", file);
   Ok(())
 }
