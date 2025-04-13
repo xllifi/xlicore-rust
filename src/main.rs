@@ -1,9 +1,11 @@
 mod download;
 mod utils;
-use std::error::Error;
 use bytes::Bytes;
 use log::info;
-use utils::downloader::{DownloaderFile, DownloaderFileProgress, DownloaderFileTypes, DownloaderOpts};
+use std::error::Error;
+use utils::downloader::{
+  DownloaderFile, DownloaderFileProgress, DownloaderFileTypes, DownloaderOpts,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -23,12 +25,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "Downloaded {0}{1} bytes (speed: {2} bytes/second)",
         current_progress.downloaded_bytes,
         current_progress.file_size,
-        if current_progress.diff_time > 0 { (current_progress.diff_bytes as u128 / current_progress.diff_time) * 1000 } else { 0 }
+        if current_progress.diff_time > 0 {
+          (current_progress.diff_bytes as u128 / current_progress.diff_time) * 1000
+        } else {
+          0
+        }
       )
     }),
-    on_download_finish: Some(|file: DownloaderFile| {
-      info!("Finished downloading {:?}", file.name)
-    }),
+    on_download_finish: Some(|file: DownloaderFile| info!("Finished downloading {:?}", file.name)),
     overwrite: Some(false),
     get_content: Some(false),
     total_size: None,

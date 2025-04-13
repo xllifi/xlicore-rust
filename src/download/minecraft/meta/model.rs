@@ -1,15 +1,15 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MinecraftMetaVersionManifest {
   pub latest: MinecraftMetaVersionManifestLatest,
-  pub versions: Vec<MinecraftMetaVersionManifestPackage>
+  pub versions: Vec<MinecraftMetaVersionManifestPackage>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MinecraftMetaVersionManifestLatest {
   pub release: String,
-  pub snapshot: String
+  pub snapshot: String,
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MinecraftMetaVersionManifestPackage {
@@ -22,5 +22,5 @@ pub struct MinecraftMetaVersionManifestPackage {
   pub release_time: String,
   pub sha1: String,
   #[serde(rename = "complianceLevel")]
-  pub compliance_level: u32
+  pub compliance_level: u32,
 }
