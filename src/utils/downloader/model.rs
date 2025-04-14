@@ -1,5 +1,8 @@
 use bytes::Bytes;
 use reqwest::Client;
+use std::{error::Error, fmt};
+use sha1::Sha1;
+use sha2::Sha256;
 
 pub struct Downloader {
   /// Suffix that all partially downloaded files will have
@@ -16,6 +19,7 @@ pub struct DownloaderFile {
   pub name: Option<String>,
   pub size: Option<u64>,
   pub verify: Option<DownloaderVerify>,
+  #[allow(dead_code)] // provided for frontends
   pub file_type: DownloaderFileTypes,
   pub retries: u8,
 }
@@ -24,7 +28,6 @@ pub struct DownloaderFile {
 pub struct DownloaderVerify {
   pub hash: String,
   pub algorithm: DownloaderAlgorithm,
-  pub retry_download: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -60,13 +63,45 @@ pub enum DownloaderFileTypes {
   Game,
 }
 
-#[derive(Debug)]
-pub enum DownloaderAlgorithm {
-  Sha1,
-  Sha256,
-}
-
 pub struct DownloaderFileProgress {
   pub file_size: u64,
   pub downloaded_bytes: u64,
+}
+
+#[derive(Debug)]
+pub struct DownloaderError {
+  pub cause: DownloaderErrorCauses,
+  pub details: String,
+}
+
+impl Error for DownloaderError {}
+
+impl fmt::Display for DownloaderError {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "{} (Enum {})", self.details, self.cause)
+  }
+}
+
+#[derive(Debug)]
+pub enum DownloaderErrorCauses {
+  VerifyFailed,
+  BrokenStream,
+  HttpFailed,
+}
+
+impl fmt::Display for DownloaderErrorCauses {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "{:?}", self)
+  }
+}
+
+pub enum Hasher {
+  Sha1(Sha1),
+  Sha256(Sha256),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum DownloaderAlgorithm {
+  Sha1,
+  Sha256,
 }

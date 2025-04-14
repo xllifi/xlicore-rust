@@ -6,7 +6,7 @@ use fern::colors::{Color, ColoredLevelConfig};
 use log::{debug, info};
 use std::{error::Error, io::stdout};
 use utils::downloader::{
-  DownloaderFile, DownloaderFileProgress, DownloaderFileTypes, DownloaderOpts,
+  DownloaderAlgorithm, DownloaderFile, DownloaderFileProgress, DownloaderFileTypes, DownloaderOpts, DownloaderVerify
 };
 
 #[tokio::main]
@@ -36,7 +36,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     dir: "store".into(),
     name: None,
     size: None,
-    verify: None,
+    verify: Some(DownloaderVerify {
+      hash: "20492A4D0D84F8BEB1767F6616229F85D44C2827B64BDBFB260EE12FA1109E0E".into(),
+      algorithm: DownloaderAlgorithm::Sha256
+    }),
     file_type: DownloaderFileTypes::Meta,
     retries: 2,
   };
@@ -49,7 +52,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
       )
     }),
     on_download_finish: Some(|file: DownloaderFile| info!("Finished downloading {:?}", file.name)),
-    overwrite: Some(true),
+    overwrite: Some(false),
     get_content: Some(false),
     total_size: None,
   };

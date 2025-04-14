@@ -4,10 +4,12 @@ pub use model::*;
 use futures_util::StreamExt;
 use log::{debug, error};
 use reqwest::Client;
+use sha1::Sha1;
+use sha2::{Digest, Sha256};
 use std::{
   cmp::min,
   fs::{exists, remove_file},
-  io::stdout,
+  io::{BufReader, Read},
 };
 use std::{
   error::Error,
@@ -15,6 +17,8 @@ use std::{
   io::Write,
   path::Path,
 };
+
+use crate::utils::helpers::hex_to_bytes;
 
 impl Downloader {
   pub fn new(temp_suffix: String, default_opts: Option<DownloaderOpts>) -> Self {
@@ -32,8 +36,6 @@ impl Downloader {
   ) -> Result<(), String> {
     let og_retries = file.retries.clone();
     loop {
-      debug!("Trying to download file {}", file.url);
-      stdout().flush().expect("Failed to flush stdout");
       match self.exec_download(file, opts).await {
         Ok(res) => return Ok(res),
         Err(err) => {
@@ -87,23 +89,44 @@ impl Downloader {
     if let Some(path) = final_path.parent() {
       create_dir_all(path)?;
     }
-    let temp_path_exists: bool = exists(&temp_path)?;
     let final_path_exists: bool = exists(&final_path)?;
     if resolved_opts.overwrite.unwrap_or(false) {
-      if temp_path_exists { remove_file(&temp_path)?; }
-      if final_path_exists { remove_file(&final_path)?; }
-    }/* else if temp_path_exists || final_path_exists {
-      TODO: add verify & overwrite logic
-    }*/
+      if final_path_exists {
+        remove_file(&final_path)?;
+      }
+    } else if let Some(verify) = &file.verify {
+      if final_path_exists {
+        let file = File::open(final_path)?;
+        let mut reader = BufReader::new(file);
+        let mut hasher = Hasher::new(verify.algorithm);
+
+        let mut buffer = [0; 65536];
+
+        loop {
+          let count = reader.read(&mut buffer)?;
+          if count == 0 {
+            break;
+          }
+          hasher.update(&buffer[..count]);
+        }
+
+        if !Downloader::check_hashes(hasher, verify) {
+          return Err(Box::new(DownloaderError {
+            cause: DownloaderErrorCauses::VerifyFailed,
+            details: "Failed to verify file hash".into(),
+          }));
+        } else {
+          return Ok(());
+        }
+      }
+    }
+    if exists(&temp_path)? {
+      remove_file(&temp_path)?;
+    }
     let mut temp_file = File::create_new(&temp_path)?;
 
     // Execute download
-    let resp = self
-      .reqwest_client
-      .get(&file.url)
-      .send()
-      .await
-      .or(Err(format!("Failed to GET {}", &file.url)))?;
+    let resp = self.reqwest_client.get(&file.url).send().await?;
 
     let file_size = resp.content_length().or(file.size).ok_or(format!(
       "Failed to get file size from request or file meta for {}",
@@ -116,14 +139,15 @@ impl Downloader {
     let mut downloaded: u64 = 0;
     let mut stream = resp.bytes_stream();
 
+    let mut hasher = Hasher::new(file.verify.as_ref().unwrap().algorithm);
+
     while let Some(item) = stream.next().await {
-      let chunk = item.or(Err(format!(
-        "Failed to download file '{}'",
-        final_path.to_str().unwrap()
-      )))?;
-      temp_file
-        .write_all(&chunk)
-        .or(Err("Error while writing to file".to_string()))?;
+      let chunk = item.or(Err(DownloaderError {
+        cause: DownloaderErrorCauses::BrokenStream,
+        details: format!("Failed to download file '{}'", final_path.to_str().unwrap()),
+      }))?;
+      temp_file.write_all(&chunk)?;
+      hasher.update(&chunk);
       downloaded = min(downloaded + (chunk.len() as u64), file_size);
 
       if let Some(progress_callback) = resolved_opts.on_download_progress {
@@ -135,8 +159,57 @@ impl Downloader {
       }
     }
 
-    rename(&temp_path, &final_path)?;
+    match &file.verify {
+      Some(verify) => {
+        if !Downloader::check_hashes(hasher, &verify) {
+          return Err(Box::new(DownloaderError {
+            cause: DownloaderErrorCauses::VerifyFailed,
+            details: "Failed to verify file hash".into(),
+          }));
+        }
+      }
+      None => ()
+    }
 
-    Ok(())
+    rename(&temp_path, &final_path)?;
+    return Ok(());
+  }
+
+  fn check_hashes(hasher: Hasher, verify: &DownloaderVerify) -> bool {
+    let hash: Vec<u8> = hasher.finalize();
+    #[cfg(debug_assertions)]
+    {
+      let verify_hash_u8slice = hex_to_bytes(&verify.hash).unwrap();
+      if hash == verify_hash_u8slice {
+        debug!("HASHES MATCH:");
+        debug!("{:x?} and {:x?}", hash, verify_hash_u8slice);
+      } else {
+        debug!("HASHES NON-MATCH:");
+        debug!("{:x?} and {:x?}", hash, verify_hash_u8slice);
+      }
+    }
+    hash == hex_to_bytes(&verify.hash).unwrap()
+  }
+}
+
+impl Hasher {
+  fn new(algorithm: DownloaderAlgorithm) -> Self {
+    match algorithm {
+      DownloaderAlgorithm::Sha1 => Hasher::Sha1(Sha1::new()),
+      DownloaderAlgorithm::Sha256 => Hasher::Sha256(Sha256::new()),
+    }
+  }
+  fn update(&mut self, data: &[u8]) {
+    match self {
+      Hasher::Sha1(hasher) => hasher.update(data),
+      Hasher::Sha256(hasher) => hasher.update(data),
+    }
+  }
+
+  fn finalize(self) -> Vec<u8> {
+    match self {
+      Hasher::Sha1(hasher) => hasher.finalize().to_vec(),
+      Hasher::Sha256(hasher) => hasher.finalize().to_vec(),
+    }
   }
 }

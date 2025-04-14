@@ -3,9 +3,9 @@
     {
       "type": "cppvsdbg",
       "request": "launch",
-      "name": "cargo run -p first",
+      "name": "cargo run -p xlicore",
       "cwd": "${workspaceFolder}",
-      "program": "${workspaceFolder}\\target\\debug\\first.exe",
+      "program": "${workspaceFolder}\\target\\debug\\xlicore.exe",
       "environment": [
         {
           "name": "RUST_BACKTRACE",
