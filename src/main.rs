@@ -53,7 +53,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }),
     on_download_finish: Some(|file: DownloaderFile| info!("Finished downloading {:?}", file.name)),
     overwrite: Some(false),
-    get_content: Some(false),
     total_size: None,
   };
 

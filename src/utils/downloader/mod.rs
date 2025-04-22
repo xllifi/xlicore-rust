@@ -4,12 +4,15 @@ pub use model::*;
 use futures_util::StreamExt;
 use log::{debug, error};
 use reqwest::Client;
+use serde::de::DeserializeOwned;
+use serde_json::from_reader;
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use std::{
   cmp::min,
   fs::{exists, remove_file},
   io::{BufReader, Read},
+  path::PathBuf,
 };
 use std::{
   error::Error,
@@ -33,7 +36,7 @@ impl Downloader {
     &self,
     file: &mut DownloaderFile,
     opts: Option<&DownloaderOpts>,
-  ) -> Result<(), String> {
+  ) -> Result<PathBuf, String> {
     let og_retries = file.retries.clone();
     loop {
       match self.exec_download(file, opts).await {
@@ -55,11 +58,30 @@ impl Downloader {
     }
   }
 
+  pub async fn single_download_get_json<T: DeserializeOwned>(
+    &self,
+    file: &mut DownloaderFile,
+    opts: Option<&DownloaderOpts>,
+  ) -> Result<T, String> {
+    let path = self.single_download(file, opts).await?;
+
+    let file = match File::open(path) {
+      Ok(res) => res,
+      Err(err) => return Err(format!("{}", err.to_string())),
+    };
+    let reader = BufReader::new(file);
+
+    Ok(match from_reader(reader) {
+      Ok(res) => res,
+      Err(err) => return Err(format!("{}", err.to_string())),
+    })
+  }
+
   async fn exec_download(
     &self,
     file: &mut DownloaderFile,
     opts: Option<&DownloaderOpts>,
-  ) -> Result<(), Box<dyn Error>> {
+  ) -> Result<PathBuf, Box<dyn Error>> {
     debug!(
       "Requested to download file {} with opts {:?}",
       file.url, opts
@@ -96,7 +118,7 @@ impl Downloader {
       }
     } else if let Some(verify) = &file.verify {
       if final_path_exists {
-        let file = File::open(final_path)?;
+        let file = File::open(&final_path)?;
         let mut reader = BufReader::new(file);
         let mut hasher = Hasher::new(verify.algorithm);
 
@@ -116,7 +138,7 @@ impl Downloader {
             details: "Failed to verify file hash".into(),
           }));
         } else {
-          return Ok(());
+          return Ok(final_path);
         }
       }
     }
@@ -126,7 +148,15 @@ impl Downloader {
     let mut temp_file = File::create_new(&temp_path)?;
 
     // Execute download
-    let resp = self.reqwest_client.get(&file.url).send().await?;
+    let resp = match self.reqwest_client.get(&file.url).send().await {
+      Ok(res) => res,
+      Err(err) => {
+        return Err(Box::new(DownloaderError {
+          cause: DownloaderErrorCauses::HttpFailed,
+          details: err.to_string(),
+        }));
+      }
+    };
 
     let file_size = resp.content_length().or(file.size).ok_or(format!(
       "Failed to get file size from request or file meta for {}",
@@ -168,11 +198,11 @@ impl Downloader {
           }));
         }
       }
-      None => ()
+      None => (),
     }
 
     rename(&temp_path, &final_path)?;
-    return Ok(());
+    Ok(final_path)
   }
 
   fn check_hashes(hasher: Hasher, verify: &DownloaderVerify) -> bool {

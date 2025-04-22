@@ -35,7 +35,6 @@ pub struct DownloaderOpts {
   pub on_download_progress: Option<fn(current_progress: DownloaderFileProgress, chunk: Bytes)>,
   pub on_download_finish: Option<fn(file: DownloaderFile)>,
   pub overwrite: Option<bool>,
-  pub get_content: Option<bool>,
   pub total_size: Option<u64>,
 }
 
@@ -46,7 +45,6 @@ impl DownloaderOpts {
       on_download_progress: self.on_download_progress.or(other.on_download_progress),
         on_download_finish: self.on_download_finish.or(other.on_download_finish),
                  overwrite: self.overwrite.or(other.overwrite),
-               get_content: self.get_content.or(other.get_content),
                 total_size: self.total_size.or(other.total_size)
     }
   }
@@ -84,8 +82,11 @@ impl fmt::Display for DownloaderError {
 
 #[derive(Debug)]
 pub enum DownloaderErrorCauses {
+  /// Verification hashes mismatch
   VerifyFailed,
+  /// Downloader stream broke
   BrokenStream,
+  /// HTTP request failed
   HttpFailed,
 }
 
