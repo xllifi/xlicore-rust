@@ -65,16 +65,10 @@ impl Downloader {
   ) -> Result<T, String> {
     let path = self.single_download(file, opts).await?;
 
-    let file = match File::open(path) {
-      Ok(res) => res,
-      Err(err) => return Err(format!("{}", err.to_string())),
-    };
+    let file = File::open(path).map_err(|x| x.to_string())?;
     let reader = BufReader::new(file);
 
-    Ok(match from_reader(reader) {
-      Ok(res) => res,
-      Err(err) => return Err(format!("{}", err.to_string())),
-    })
+    from_reader(reader).map_err(|x| x.to_string())
   }
 
   async fn exec_download(
