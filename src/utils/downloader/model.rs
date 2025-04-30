@@ -64,6 +64,9 @@ pub enum DownloaderFileTypes {
 pub struct DownloaderFileProgress {
   pub file_size: u64,
   pub downloaded_bytes: u64,
+  #[allow(dead_code)] // provided for frontends
+  /// If progress is working and not broken
+  pub ok: bool,
 }
 
 #[derive(Debug)]

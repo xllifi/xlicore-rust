@@ -152,11 +152,8 @@ impl Downloader {
       }
     };
 
-    let file_size = resp.content_length().or(file.size).ok_or(format!(
-      "Failed to get file size from request or file meta for {}",
-      &file.url
-    ))?;
-    // TODO^ make it NOT error but just disable progress
+    let file_size = resp.content_length().or(file.size).unwrap_or(0);
+    let progress_ok: bool = file_size > 0;
     debug!("Resolved file_size: {}", file_size);
 
     // Write from stream
@@ -178,6 +175,7 @@ impl Downloader {
         let progress: DownloaderFileProgress = DownloaderFileProgress {
           file_size,
           downloaded_bytes: downloaded,
+          ok: progress_ok,
         };
         progress_callback(progress, chunk)
       }
