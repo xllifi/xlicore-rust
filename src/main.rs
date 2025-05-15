@@ -1,7 +1,7 @@
 mod download;
 mod utils;
 use colored::Colorize;
-use download::minecraft::meta::{get_package_version, get_version_manifest, MinecraftPackageManifestLibrary};
+use download::minecraft::meta::{get_package_manifest, get_version_manifest, MinecraftPackageManifestLibrary};
 use fern::colors::{Color, ColoredLevelConfig};
 use std::{error::Error, io::stdout};
 use utils::downloader::
@@ -32,18 +32,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   let dl = Downloader::new(".temp".into(), None);
   let version_manifest = get_version_manifest(&dl).await?;
-  let package_version = get_package_version(&dl, "latest".into(), &version_manifest).await?;
+  let package_manifest = get_package_manifest(&dl, "latest".into(), &version_manifest).await?;
 
-  for library in package_version.libraries {
+  for library in &package_manifest.libraries {
     match library {
       MinecraftPackageManifestLibrary::Ruled(val) => {
-        println!("{:?}", val.downloads.artifact.url)
+        info!("{:?}", val.downloads.artifact.url)
       },
       MinecraftPackageManifestLibrary::Simple(val) => {
-        println!("{:?}", val.downloads.artifact.url)
+        info!("{:?}", val.downloads.artifact.url)
       }
     }
-      
   }
 
   Ok(())

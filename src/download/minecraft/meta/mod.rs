@@ -29,11 +29,11 @@ pub async fn get_version_manifest(
 }
 
 fn get_package_info(
-  requested_version: String,
+  package_version: String,
   version_manifest: MinecraftMetaVersionManifest,
 ) -> Result<MinecraftMetaVersionManifestPackage, String> {
   let mut iterator = version_manifest.versions.into_iter();
-  match requested_version.as_str() {
+  match package_version.as_str() {
     "lr" | "latest_release" | "release" | "latest" => {
       let id = version_manifest.latest.release;
       iterator.find(|x| x.id == id)
@@ -42,25 +42,25 @@ fn get_package_info(
       let id = version_manifest.latest.snapshot;
       iterator.find(|x| x.id == id)
     }
-    _ => iterator.find(|x| x.id == requested_version),
+    _ => iterator.find(|x| x.id == package_version),
   }
   .ok_or(format!(
     "Version {} not found!",
-    requested_version
+    package_version
   ))
 }
 
-pub async fn get_package_version(
+pub async fn get_package_manifest(
   dl: &Downloader,
-  requested_version: String,
+  package_version: String,
   version_manifest: &MinecraftMetaVersionManifest,
 ) -> Result<MinecraftPackageManifest, Box<dyn Error>> {
-  let info = get_package_info(requested_version, version_manifest.clone())?;
+  let package = get_package_info(package_version, version_manifest.clone())?;
 
   let mut file: DownloaderFile = DownloaderFile {
-    url: info.url,
-    dir: "store".into(),
-    name: None,
+    url: package.url,
+    dir: format!("store/{}", package.id),
+    name: Some(format!("{}.json", package.id)),
     size: None,
     verify: None,
     file_type: DownloaderFileTypes::Meta,
