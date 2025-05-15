@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FabricAllVersions {
   pub game: Vec<FabricGameVersion>,
   pub mappings: Vec<FabricYarnVersion>,
@@ -9,7 +9,7 @@ pub struct FabricAllVersions {
   pub installer: Vec<FabricInstallerVersion>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FabricGameVersion {
   /// Minecraft version
   pub version: String,
@@ -17,7 +17,7 @@ pub struct FabricGameVersion {
   pub stable: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FabricYarnVersion {
   /// Minecraft version
   #[serde(rename = "gameVersion")]
@@ -34,7 +34,7 @@ pub struct FabricYarnVersion {
   pub stable: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FabricIntermediaryVersion {
   /// Package's maven name
   pub maven: String,
@@ -44,7 +44,7 @@ pub struct FabricIntermediaryVersion {
   pub stable: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FabricLoaderVersion {
   /// Major and minor versions separator
   pub separator: String,
@@ -58,7 +58,7 @@ pub struct FabricLoaderVersion {
   pub stable: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FabricInstallerVersion {
   /// Download URL
   url: String,
@@ -70,7 +70,7 @@ pub struct FabricInstallerVersion {
   stable: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FabricVersion {
   loader: FabricLoaderVersion,
   intermediary: FabricIntermediaryVersion,
@@ -78,7 +78,7 @@ pub struct FabricVersion {
   launcher_meta: FabricVersionLauncherMeta,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FabricVersionLauncherMeta {
   version: u32,
   min_java_version: u32,
@@ -86,20 +86,20 @@ pub struct FabricVersionLauncherMeta {
   #[serde(rename = "mainClass")]
   main_class: FabricVersionMainClass,
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FabricVersionLibraries {
   client: Vec<FabricVersionDownload>,
   common: Vec<FabricVersionDownload>,
   server: Vec<FabricVersionDownload>,
   development: Vec<FabricVersionDownload>,
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FabricVersionMainClass {
   client: String,
   server: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FabricVersionDownload {
   name: String,
   url: String,
