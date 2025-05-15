@@ -1,14 +1,12 @@
 mod download;
 mod utils;
-use bytes::Bytes;
 use colored::Colorize;
 use download::minecraft::meta::{get_package_version, get_version_manifest, MinecraftPackageManifestLibrary};
 use fern::colors::{Color, ColoredLevelConfig};
-use log::{debug, info};
 use std::{error::Error, io::stdout};
-use utils::downloader::{
-  Downloader, DownloaderAlgorithm, DownloaderFile, DownloaderFileProgress, DownloaderFileTypes, DownloaderOpts, DownloaderVerify
-};
+use utils::downloader::
+  Downloader
+;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -34,7 +32,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   let dl = Downloader::new(".temp".into(), None);
   let version_manifest = get_version_manifest(&dl).await?;
-  let package_version = get_package_version(&dl, "latest".into(), version_manifest).await?;
+  let package_version = get_package_version(&dl, "latest".into(), &version_manifest).await?;
 
   for library in package_version.libraries {
     match library {
