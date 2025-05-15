@@ -160,7 +160,12 @@ impl Downloader {
     let mut downloaded: u64 = 0;
     let mut stream = resp.bytes_stream();
 
-    let mut hasher = Hasher::new(file.verify.as_ref().unwrap().algorithm);
+    let mut hasher: Option<Hasher> = match &file.verify {
+        Some(verify) => {
+          Some(Hasher::new(verify.algorithm))
+        },
+        None => None,
+    };
 
     while let Some(item) = stream.next().await {
       let chunk = item.or(Err(DownloaderError {
@@ -168,7 +173,10 @@ impl Downloader {
         details: format!("Failed to download file '{}'", final_path.to_str().unwrap()),
       }))?;
       temp_file.write_all(&chunk)?;
-      hasher.update(&chunk);
+      match &mut hasher {
+        Some(hasher) => hasher.update(&chunk),
+        None => (),
+      }
       downloaded = min(downloaded + (chunk.len() as u64), file_size);
 
       if let Some(progress_callback) = resolved_opts.on_download_progress {
@@ -183,11 +191,16 @@ impl Downloader {
 
     match &file.verify {
       Some(verify) => {
-        if !Downloader::check_hashes(hasher, &verify) {
-          return Err(Box::new(DownloaderError {
-            cause: DownloaderErrorCauses::VerifyFailed,
-            details: "Failed to verify file hash".into(),
-          }));
+        match hasher {
+            Some(hasher) => {
+              if !Downloader::check_hashes(hasher, &verify) {
+                return Err(Box::new(DownloaderError {
+                  cause: DownloaderErrorCauses::VerifyFailed,
+                  details: "Failed to verify file hash".into(),
+                }));
+              }
+            },
+            None => (),
         }
       }
       None => (),
