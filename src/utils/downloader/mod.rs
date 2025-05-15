@@ -131,6 +131,7 @@ impl Downloader {
               details: "Failed to verify file hash".into(),
             }));
           } else {
+            debug!("Skipping download because existing file's hash is okay");
             return Ok(final_path);
           }
         }
