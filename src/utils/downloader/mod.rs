@@ -135,6 +135,8 @@ impl Downloader {
           return Ok(final_path);
         }
       }
+    } else {
+      return Ok(final_path);
     }
     if exists(&temp_path)? {
       remove_file(&temp_path)?;
