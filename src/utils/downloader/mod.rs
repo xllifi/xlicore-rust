@@ -106,37 +106,34 @@ impl Downloader {
       create_dir_all(path)?;
     }
     let final_path_exists: bool = exists(&final_path)?;
-    if resolved_opts.overwrite.unwrap_or(false) {
-      if final_path_exists {
+    if final_path_exists {
+      if resolved_opts.overwrite.unwrap_or(false) {
         remove_file(&final_path)?;
-      }
-    } else if let Some(verify) = &file.verify {
-      if final_path_exists {
-        let file = File::open(&final_path)?;
-        let mut reader = BufReader::new(file);
-        let mut hasher = Hasher::new(verify.algorithm);
+      } else {
+        if let Some(verify) = &file.verify {
+          let file = File::open(&final_path)?;
+          let mut reader = BufReader::new(file);
+          let mut hasher = Hasher::new(verify.algorithm);
 
-        let mut buffer = [0; 65536];
+          let mut buffer = [0; 65536];
 
-        loop {
-          let count = reader.read(&mut buffer)?;
-          if count == 0 {
-            break;
+          loop {
+            let count = reader.read(&mut buffer)?;
+            if count == 0 {
+              break;
+            }
+            hasher.update(&buffer[..count]);
           }
-          hasher.update(&buffer[..count]);
-        }
 
-        if !Downloader::check_hashes(hasher, verify) {
-          return Err(Box::new(DownloaderError {
-            cause: DownloaderErrorCauses::VerifyFailed,
-            details: "Failed to verify file hash".into(),
-          }));
-        } else {
-          return Ok(final_path);
+          if !Downloader::check_hashes(hasher, verify) {
+            return Err(Box::new(DownloaderError {
+              cause: DownloaderErrorCauses::VerifyFailed,
+              details: "Failed to verify file hash".into(),
+            }));
+          }
         }
+        return Ok(final_path);
       }
-    } else {
-      return Ok(final_path);
     }
     if exists(&temp_path)? {
       remove_file(&temp_path)?;
@@ -163,10 +160,8 @@ impl Downloader {
     let mut stream = resp.bytes_stream();
 
     let mut hasher: Option<Hasher> = match &file.verify {
-        Some(verify) => {
-          Some(Hasher::new(verify.algorithm))
-        },
-        None => None,
+      Some(verify) => Some(Hasher::new(verify.algorithm)),
+      None => None,
     };
 
     while let Some(item) = stream.next().await {
@@ -192,19 +187,17 @@ impl Downloader {
     }
 
     match &file.verify {
-      Some(verify) => {
-        match hasher {
-            Some(hasher) => {
-              if !Downloader::check_hashes(hasher, &verify) {
-                return Err(Box::new(DownloaderError {
-                  cause: DownloaderErrorCauses::VerifyFailed,
-                  details: "Failed to verify file hash".into(),
-                }));
-              }
-            },
-            None => (),
+      Some(verify) => match hasher {
+        Some(hasher) => {
+          if !Downloader::check_hashes(hasher, &verify) {
+            return Err(Box::new(DownloaderError {
+              cause: DownloaderErrorCauses::VerifyFailed,
+              details: "Failed to verify file hash".into(),
+            }));
+          }
         }
-      }
+        None => (),
+      },
       None => (),
     }
 
