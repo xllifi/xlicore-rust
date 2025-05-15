@@ -2,11 +2,12 @@ mod download;
 mod utils;
 use bytes::Bytes;
 use colored::Colorize;
+use download::minecraft::meta::{get_package_version, get_version_manifest, MinecraftPackageManifestLibrary};
 use fern::colors::{Color, ColoredLevelConfig};
 use log::{debug, info};
 use std::{error::Error, io::stdout};
 use utils::downloader::{
-  DownloaderAlgorithm, DownloaderFile, DownloaderFileProgress, DownloaderFileTypes, DownloaderOpts, DownloaderVerify
+  Downloader, DownloaderAlgorithm, DownloaderFile, DownloaderFileProgress, DownloaderFileTypes, DownloaderOpts, DownloaderVerify
 };
 
 #[tokio::main]
@@ -31,37 +32,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .chain(stdout())
     .apply()?;
 
-  let mut file: DownloaderFile = DownloaderFile {
-    url: "https://mirror.haku.host/100MB.test".into(),
-    dir: "store".into(),
-    name: None,
-    size: None,
-    verify: Some(DownloaderVerify {
-      hash: "20492A4D0D84F8BEB1767F6616229F85D44C2827B64BDBFB260EE12FA1109E0E".into(),
-      algorithm: DownloaderAlgorithm::Sha256
-    }),
-    file_type: DownloaderFileTypes::Meta,
-    retries: 2,
-  };
-  let opts: DownloaderOpts = DownloaderOpts {
-    on_download_progress: Some(|current_progress: DownloaderFileProgress, _chunk: Bytes| {
-      info!(
-        "Downloaded {0}/{1} bytes",
-        current_progress.downloaded_bytes,
-        current_progress.file_size,
-      )
-    }),
-    on_download_finish: Some(|file: DownloaderFile| info!("Finished downloading {:?}", file.name)),
-    overwrite: Some(false),
-    total_size: None,
-  };
+  let dl = Downloader::new(".temp".into(), None);
+  let version_manifest = get_version_manifest(&dl).await?;
+  let package_version = get_package_version(&dl, "latest".into(), version_manifest).await?;
 
-  let temp_suffix: String = ".temp".into();
+  for library in package_version.libraries {
+    match library {
+      MinecraftPackageManifestLibrary::Ruled(val) => {
+        println!("{:?}", val.downloads.artifact.url)
+      },
+      MinecraftPackageManifestLibrary::Simple(val) => {
+        println!("{:?}", val.downloads.artifact.url)
+      }
+    }
+      
+  }
 
-  let dl = utils::downloader::Downloader::new(temp_suffix, None);
-  dl.single_download(&mut file, Some(&opts)).await?;
-
-  debug!("{:?}", opts);
-  debug!("{:?}", file);
   Ok(())
 }
