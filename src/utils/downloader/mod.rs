@@ -130,9 +130,10 @@ impl Downloader {
               cause: DownloaderErrorCauses::VerifyFailed,
               details: "Failed to verify file hash".into(),
             }));
+          } else {
+            return Ok(final_path);
           }
         }
-        return Ok(final_path);
       }
     }
     if exists(&temp_path)? {
