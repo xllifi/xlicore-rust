@@ -1,8 +1,9 @@
 mod download;
 mod utils;
 use colored::Colorize;
-use download::minecraft::meta::{get_package_manifest, get_version_manifest, MinecraftPackageManifestLibrary};
+use download::{fabric::meta::get_fabric_launcher_meta, minecraft::meta::{get_package_manifest, get_version_manifest, MinecraftPackageManifestLibrary}};
 use fern::colors::{Color, ColoredLevelConfig};
+use log::info;
 use std::{error::Error, io::stdout};
 use utils::downloader::
   Downloader
@@ -44,6 +45,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
       }
     }
   }
+
+  let fabric_meta = get_fabric_launcher_meta(&dl, &package_manifest, None).await?;
+
+  info!("{:?}", fabric_meta);
 
   Ok(())
 }
