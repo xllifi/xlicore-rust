@@ -3,7 +3,7 @@ use std::error::Error;
 
 pub use model::*;
 
-use crate::utils::downloader::{Downloader, DownloaderFile, DownloaderFileTypes, DownloaderOpts};
+use crate::utils::downloader::{Downloader, DownloaderAlgorithm, DownloaderFile, DownloaderFileTypes, DownloaderOpts, DownloaderVerify};
 
 pub async fn get_version_manifest(
   dl: &Downloader,
@@ -62,7 +62,10 @@ pub async fn get_package_manifest(
     dir: format!("store/{}", package.id),
     name: Some(format!("{}.json", package.id)),
     size: None,
-    verify: None,
+    verify: Some(DownloaderVerify {
+      hash: package.sha1,
+      algorithm: DownloaderAlgorithm::Sha1
+    }),
     file_type: DownloaderFileTypes::Meta,
     retries: 2,
   };
