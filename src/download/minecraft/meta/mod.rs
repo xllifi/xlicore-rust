@@ -69,14 +69,8 @@ pub async fn get_package_manifest(
     file_type: DownloaderFileTypes::Meta,
     retries: 2,
   };
-  let opts: DownloaderOpts = DownloaderOpts {
-    on_download_progress: None,
-    on_download_finish: None,
-    overwrite: Some(false),
-    total_size: None,
-  };
 
   let ret: MinecraftPackageManifest =
-    dl.single_download_get_json(&mut file, Some(&opts)).await?;
+    dl.single_download_get_json(&mut file, None).await?;
   Ok(ret)
 }
