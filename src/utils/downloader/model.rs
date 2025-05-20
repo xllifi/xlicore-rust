@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use reqwest::Client;
-use std::{error::Error, fmt};
+use std::{error::Error, fmt::{self, Debug}, sync::Arc, time::Duration};
 use sha1::Sha1;
 use sha2::Sha256;
 
@@ -12,7 +12,7 @@ pub struct Downloader {
   pub reqwest_client: Client,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DownloaderFile {
   pub url: String,
   pub dir: String,
@@ -24,33 +24,47 @@ pub struct DownloaderFile {
   pub retries: u8,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DownloaderVerify {
   pub hash: String,
   pub algorithm: DownloaderAlgorithm,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct DownloaderOpts {
-  pub on_download_progress: Option<fn(current_progress: DownloaderFileProgress, chunk: Bytes)>,
-  pub on_download_finish: Option<fn(file: DownloaderFile)>,
+  pub on_download_progress: Option<DownloaderOptsProgressCallback>,
+  pub on_download_finish: Option<DownloaderOptsFinishCallback>,
   pub overwrite: Option<bool>,
   pub total_size: Option<u64>,
 }
 
+pub type DownloaderOptsProgressCallback = Arc<dyn Fn(DownloaderFileProgress, Bytes, &DownloaderFile, &DownloaderFileLastProgress) + Send + Sync>;
+pub type DownloaderOptsFinishCallback = Arc<dyn Fn(&DownloaderFile, &DownloaderFileLastProgress) + Send + Sync>;
+
 impl DownloaderOpts {
   #[rustfmt::skip]
+  /// Some() `self` fields overwrite Some() `other` fields
   pub fn merge(&self, other: &DownloaderOpts) -> Self {
     Self {
-      on_download_progress: self.on_download_progress.or(other.on_download_progress),
-        on_download_finish: self.on_download_finish.or(other.on_download_finish),
+      on_download_progress: self.on_download_progress.clone().or(other.on_download_progress.clone()),
+        on_download_finish: self.on_download_finish.clone().or(other.on_download_finish.clone()),
                  overwrite: self.overwrite.or(other.overwrite),
                 total_size: self.total_size.or(other.total_size)
     }
   }
 }
 
-#[derive(Debug)]
+// Custom debug impl for ignoring callbacks
+impl Debug for DownloaderOpts {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("DownloaderOpts")
+      .field("overwrite", &self.overwrite)
+      .field("total_size", &self.total_size)
+      .finish()
+  }
+}
+
+#[derive(Debug, Clone)]
 pub enum DownloaderFileTypes {
   Asset,
   Library,
@@ -67,6 +81,11 @@ pub struct DownloaderFileProgress {
   #[allow(dead_code)] // provided for frontends
   /// If progress is working and not broken
   pub ok: bool,
+}
+#[derive(Default)]
+pub struct DownloaderFileLastProgress {
+  pub downloaded_bytes: u64,
+  pub timestamp: Duration
 }
 
 #[derive(Debug)]

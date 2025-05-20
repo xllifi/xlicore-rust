@@ -119,7 +119,17 @@ pub enum MinecraftPackageManifestRuleConditionOsNames {
   #[serde(rename = "linux")]
   Linux,
   #[serde(rename = "osx")]
-  Osx
+  Macos
+}
+
+impl MinecraftPackageManifestRuleConditionOsNames {
+  pub fn as_str(&self) -> &'static str {
+    match self {
+        MinecraftPackageManifestRuleConditionOsNames::Windows => "windows",
+        MinecraftPackageManifestRuleConditionOsNames::Linux => "linux",
+        MinecraftPackageManifestRuleConditionOsNames::Macos => "macos",
+    }
+  }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -129,6 +139,15 @@ pub enum MinecraftPackageManifestRuleConditionArchNames {
   X86,
   #[serde(rename = "x64")]
   X64,
+}
+
+impl MinecraftPackageManifestRuleConditionArchNames {
+  pub fn as_str(&self) -> &'static str {
+    match self {
+        MinecraftPackageManifestRuleConditionArchNames::X86 => "x86",
+        MinecraftPackageManifestRuleConditionArchNames::X64 => "x64",
+    }
+  }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -187,16 +206,28 @@ pub enum MinecraftPackageManifestLibrary {
   Simple(MinecraftPackageManifestLibrarySimple),
   Ruled(MinecraftPackageManifestLibraryRuled)
 }
+pub trait MinecraftPackageManifestLibraryBase {
+  fn downloads(&self) -> &MinecraftPackageManifestLibraryDownloads;
+  fn name(&self) -> &str;
+}
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MinecraftPackageManifestLibrarySimple {
   pub downloads: MinecraftPackageManifestLibraryDownloads,
   pub name: String,
+}
+impl MinecraftPackageManifestLibraryBase for MinecraftPackageManifestLibrarySimple {
+  fn downloads(&self) -> &MinecraftPackageManifestLibraryDownloads {&self.downloads}
+  fn name(&self) -> &str {&self.name}
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MinecraftPackageManifestLibraryRuled {
   pub downloads: MinecraftPackageManifestLibraryDownloads,
   pub name: String,
   pub rules: Vec<MinecraftPackageManifestRuleOs>
+}
+impl MinecraftPackageManifestLibraryBase for MinecraftPackageManifestLibraryRuled {
+  fn downloads(&self) -> &MinecraftPackageManifestLibraryDownloads {&self.downloads}
+  fn name(&self) -> &str {&self.name}
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MinecraftPackageManifestLibraryDownloads {

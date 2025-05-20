@@ -1,7 +1,8 @@
 mod model;
+use bytes::Bytes;
 pub use model::*;
 
-use futures_util::StreamExt;
+use futures_util::{StreamExt, future};
 use log::{debug, error};
 use reqwest::Client;
 use serde::de::DeserializeOwned;
@@ -13,6 +14,11 @@ use std::{
   fs::{exists, remove_file},
   io::{BufReader, Read},
   path::PathBuf,
+  sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+  },
+  time::{SystemTime, UNIX_EPOCH},
 };
 use std::{
   error::Error,
@@ -32,17 +38,102 @@ impl Downloader {
     }
   }
 
+  pub async fn multiple_download(
+    &self,
+    files: Vec<DownloaderFile>,
+    opts: Option<&DownloaderOpts>,
+  ) -> Result<(), String> {
+    let opts = match opts {
+      Some(opts) => opts.clone(),
+      None => DownloaderOpts::default(),
+    };
+    let total_size = match opts.total_size {
+      Some(total_size) => Ok(total_size),
+      None => Err("Must provide opts with total_size!"),
+    }?;
+
+    let total_downloaded = Arc::new(AtomicU64::new(0));
+
+    // let chunks: Vec<Vec<&DownloaderFile>> = files.chunks(16).map(|x| x.into()).collect();
+
+    let on_progress_total_size = total_size.clone();
+    let on_progress_total_downloaded = total_downloaded.clone();
+    let on_progress_from_opts = opts.on_download_progress.clone();
+    let on_progress: DownloaderOptsProgressCallback = Arc::new(
+      move |current_progress: DownloaderFileProgress,
+            chunk: Bytes,
+            file: &DownloaderFile,
+            last_progress: &DownloaderFileLastProgress| {
+        on_progress_total_downloaded.fetch_add(
+          current_progress.downloaded_bytes - last_progress.downloaded_bytes,
+          Ordering::SeqCst,
+        );
+
+        debug!(
+          "MULDL PROGR: {}/{}",
+          on_progress_total_downloaded.load(Ordering::Relaxed),
+          on_progress_total_size
+        );
+
+        if on_progress_from_opts.is_some() {
+          let callable = on_progress_from_opts.clone().unwrap();
+          callable(current_progress, chunk, file, last_progress)
+        }
+      },
+    );
+
+    let on_finish_total_size = total_size.clone();
+    let on_finish_total_downloaded = total_downloaded.clone();
+    let on_finish_from_opts = opts.on_download_finish.clone();
+    let on_finish: DownloaderOptsFinishCallback = Arc::new(move |file: &DownloaderFile, last_progress: &DownloaderFileLastProgress| {
+      if let Some(size) = file.size {
+        on_finish_total_downloaded.fetch_add(size - last_progress.downloaded_bytes, Ordering::SeqCst);
+      }
+
+      debug!(
+        "MULDL FNISH: {}/{}",
+        on_finish_total_downloaded.load(Ordering::Relaxed),
+        on_finish_total_size
+      );
+
+      if on_finish_from_opts.is_some() {
+        let callable = on_finish_from_opts.clone().unwrap();
+        callable(file, last_progress)
+      }
+    });
+
+    let mul_opts: DownloaderOpts = DownloaderOpts {
+      on_download_progress: Some(on_progress),
+      on_download_finish: Some(on_finish),
+      overwrite: None,
+      total_size: None,
+    };
+
+    let mopts = opts.merge(&mul_opts);
+
+    let fututes = files
+      .iter()
+      .map(async |file| self.single_download(file, Some(&mopts)).await);
+
+    future::join_all(fututes).await;
+
+    Ok(())
+  }
+
   pub async fn single_download(
     &self,
-    file: &mut DownloaderFile,
+    file: &DownloaderFile,
     opts: Option<&DownloaderOpts>,
   ) -> Result<PathBuf, String> {
+    let default_opts = &DownloaderOpts::default();
+    let mut opts = opts.unwrap_or(default_opts).clone();
     let og_retries = file.retries.clone();
+    let mut retries_remain = file.retries.clone();
     loop {
-      match self.exec_download(file, opts).await {
+      match self.exec_download(file, Some(&opts)).await {
         Ok(res) => return Ok(res),
         Err(err) => {
-          if file.retries <= 0 {
+          if retries_remain <= 0 {
             return Err(format!(
               "Failed to download {} after {} retries",
               file.url, og_retries
@@ -50,17 +141,18 @@ impl Downloader {
           }
           error!(
             "Failed to download file {}, with error '{}', retrying {} more time(s)",
-            file.url, err, file.retries
+            file.url, err, retries_remain
           );
-          file.retries -= 1;
+          retries_remain -= 1;
         }
       }
+      opts.overwrite = Some(true);
     }
   }
 
   pub async fn single_download_get_json<T: DeserializeOwned>(
     &self,
-    file: &mut DownloaderFile,
+    file: &DownloaderFile,
     opts: Option<&DownloaderOpts>,
   ) -> Result<T, String> {
     let path = self.single_download(file, opts).await?;
@@ -73,7 +165,7 @@ impl Downloader {
 
   async fn exec_download(
     &self,
-    file: &mut DownloaderFile,
+    file: &DownloaderFile,
     opts: Option<&DownloaderOpts>,
   ) -> Result<PathBuf, Box<dyn Error>> {
     debug!(
@@ -88,7 +180,7 @@ impl Downloader {
     };
     debug!("Resolved file_name: {:?}", file_name);
 
-    let resolved_opts: DownloaderOpts = match &self.default_opts {
+    let opts: DownloaderOpts = match &self.default_opts {
       Some(default_opts) => match opts {
         Some(opts) => default_opts.merge(opts),
         None => default_opts.clone(),
@@ -107,12 +199,12 @@ impl Downloader {
     }
     let final_path_exists: bool = exists(&final_path)?;
     if final_path_exists {
-      if resolved_opts.overwrite.unwrap_or(false) {
+      if opts.overwrite.unwrap_or(false) {
         remove_file(&final_path)?;
       } else {
         if let Some(verify) = &file.verify {
-          let file = File::open(&final_path)?;
-          let mut reader = BufReader::new(file);
+          let fs_file = File::open(&final_path)?;
+          let mut reader = BufReader::new(fs_file);
           let mut hasher = Hasher::new(verify.algorithm);
 
           let mut buffer = [0; 65536];
@@ -132,6 +224,9 @@ impl Downloader {
             }));
           } else {
             debug!("Skipping download because existing file's hash is okay");
+            if let Some(callable) = opts.on_download_finish {
+              callable(file, &DownloaderFileLastProgress::default())
+            }
             return Ok(final_path);
           }
         }
@@ -142,7 +237,7 @@ impl Downloader {
     }
     let mut temp_file = File::create_new(&temp_path)?;
 
-    // Execute download
+    // Start executing download
     let resp = match self.reqwest_client.get(&file.url).send().await {
       Ok(res) => res,
       Err(err) => {
@@ -166,6 +261,10 @@ impl Downloader {
       None => None,
     };
 
+    let mut last_progress: DownloaderFileLastProgress = DownloaderFileLastProgress {
+      downloaded_bytes: 0,
+      timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?,
+    };
     while let Some(item) = stream.next().await {
       let chunk = item.or(Err(DownloaderError {
         cause: DownloaderErrorCauses::BrokenStream,
@@ -178,14 +277,17 @@ impl Downloader {
       }
       downloaded = min(downloaded + (chunk.len() as u64), file_size);
 
-      if let Some(progress_callback) = resolved_opts.on_download_progress {
+      if let Some(ref progress_callback) = opts.on_download_progress {
         let progress: DownloaderFileProgress = DownloaderFileProgress {
           file_size,
           downloaded_bytes: downloaded,
           ok: progress_ok,
         };
-        progress_callback(progress, chunk)
+        progress_callback(progress, chunk, file, &last_progress)
       }
+
+      last_progress.downloaded_bytes = downloaded;
+      last_progress.timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?;
     }
 
     match &file.verify {
@@ -204,6 +306,10 @@ impl Downloader {
     }
 
     rename(&temp_path, &final_path)?;
+
+    if let Some(callable) = opts.on_download_finish {
+      callable(file, &last_progress)
+    }
     Ok(final_path)
   }
 
