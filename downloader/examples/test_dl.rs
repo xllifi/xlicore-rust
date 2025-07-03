@@ -4,6 +4,7 @@ use std::{sync::mpsc, thread};
 
 #[tokio::main]
 async fn main() {
+  colog::basic_builder().filter_level(log::LevelFilter::Debug).init();
   let (tx, rx) = mpsc::channel();
   
   let files: Vec<DownloaderFile> = vec![
