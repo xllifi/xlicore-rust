@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = [
+  "downloader"
+, "xlicore"]
+
+[profile.release]
+strip = true
+lto = true
+opt-level = 3
