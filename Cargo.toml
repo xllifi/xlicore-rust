@@ -1,8 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
-  "downloader"
-, "xlicore"]
+  "downloader", 
+  "shared", 
+  "xlicore"
+]
 
 [profile.release]
 strip = true
