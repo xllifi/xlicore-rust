@@ -11,11 +11,10 @@ pub struct Error {
 #[derive(Debug)]
 pub enum ErrorCode {
   Unknown,
+  NoFiles,
   IOError,
-  ChannelDisconnected,
   HttpBadStatus,
   VerifyFailed,
-  MissingFileSize,
   SerdeError,
 }
 
@@ -37,15 +36,7 @@ impl From<std::io::Error> for Error {
   }
 }
 
-impl<T> From<SendError<T>> for Error {
-  fn from(_: SendError<T>) -> Self {
-    Error {
-      code: ErrorCode::ChannelDisconnected,
-      message: "Failed to send channel message".into(),
-    }
-  }
-}
-
+/// Assumes Response has a bad status (> 2XX)
 impl From<Response> for Error {
   fn from(response: Response) -> Self {
     Error {
@@ -55,6 +46,24 @@ impl From<Response> for Error {
         response.url(),
         response.status()
       ),
+    }
+  }
+}
+
+
+impl From<String> for Error {
+  fn from(string: String) -> Self {
+    Error {
+      code: ErrorCode::Unknown,
+      message: string
+    }
+  }
+}
+impl From<&str> for Error {
+  fn from(strslice: &str) -> Self {
+    Error {
+      code: ErrorCode::Unknown,
+      message: strslice.into()
     }
   }
 }

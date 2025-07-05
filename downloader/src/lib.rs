@@ -3,7 +3,7 @@ pub mod hasher;
 pub mod helpers;
 pub mod module;
 use std::{
-  fs::{File, create_dir_all, remove_file, rename},
+  fs::{self, create_dir_all, remove_file, rename},
   io::{BufReader, Read, Write},
   path::Path,
   sync::{
@@ -21,162 +21,80 @@ use log::debug;
 use module::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use reqwest::Client;
+use uuid::Uuid;
 
-use crate::hasher::Hasher;
+use crate::{hasher::Hasher, module::File};
 
 impl Downloader {
-  pub fn new(temp_suffix: String) -> Self {
+  pub fn new(temp_suffix: String, channel_sender: Sender<ChannelMessage>, overwrite: bool) -> Self {
     Downloader {
-      temp_suffix,
       reqwest_client: Client::new(),
-    }
-  }
-
-  pub async fn download(&self, request: DownloaderRequest) -> Result<Vec<PreppedFile>, Error> {
-    debug!("Requested download for {} file(s)", request.files.len());
-
-    // Verify variables
-    let DownloaderRequest {
-      request_type,
-      mut retries,
-      overwrite,
+      temp_suffix,
       channel_sender,
-      files,
-    } = request;
-    let request = PreppedRequest {
-      request_type,
       overwrite,
-    };
-    let mut total_size: u64;
-
-    // Prepare files array
-    let mut files = self.prep_files(&request, files).await?;
-    let ret_files = files.clone();
-    // Compensate for first run
-    retries += 1;
-
-    while files.len() > 0 {
-      total_size = Self::calc_total_size(&files)?;
-
-      if retries <= 0 {
-        let filenames: Vec<String> = files.into_iter().map(|f| f.name).collect();
-        channel_sender
-          .send(DownloaderChannelMessage::Finish {
-            success: false,
-            failed_files: Some(filenames.clone()),
-          })
-          .unwrap();
-        return Err(Error {
-          code: ErrorCode::VerifyFailed,
-          message: format!("Failed to download files: [{}]", &filenames.join(", ")),
-        });
-      }
-
-      // Download files
-      self
-        .download_files(channel_sender.clone(), total_size, &mut files, request_type)
-        .await?;
-      // Verify files
-      Self::verify_files(&mut files, channel_sender.clone());
-
-      debug!(
-        "Files left after verify: [{}]",
-        files
-          .iter()
-          .map(|f| f.name.clone())
-          .collect::<Vec<String>>()
-          .join(", ")
-      );
-
-      retries -= 1;
     }
-
-    // Download fully done
-    channel_sender
-      .send(DownloaderChannelMessage::Finish {
-        success: true,
-        failed_files: None,
-      })
-      .unwrap();
-
-    Ok(ret_files)
   }
 
-  fn calc_total_size(files: &Vec<PreppedFile>) -> Result<u64, Error> {
-    Ok(files.iter().map(|x| x.size).sum::<u64>())
-  }
+  // Shared functions
 
   fn setup_progress(
-    request_type: RequestType,
-    channel_sender: Sender<DownloaderChannelMessage>,
-    total_size: u64,
-  ) -> Result<(Option<Arc<AtomicU64>>, Option<Sender<InternalMessage>>), Error> {
-    let enable_progress = total_size != 0;
-    let progress = match enable_progress {
-      true => Some(Arc::new(AtomicU64::new(0))),
-      false => None,
-    };
-    let done_tx = match enable_progress {
-      true => {
-        channel_sender
-          .send(DownloaderChannelMessage::Start {
-            request_type,
-            progress_enabled: true,
-          })
-          .unwrap();
-        let (done_tx, done_rx) = mpsc::channel::<InternalMessage>();
+    &self,
+    data: &RequestData,
+    total: u64,
+  ) -> Result<Option<(Arc<AtomicU64>, Sender<()>)>, Error> {
+    if total <= 0 {
+      debug!("total is none, progress not reported");
+      return Ok(None);
+    }
 
-        let progress = progress.clone().unwrap();
-        let channel_sender = channel_sender.clone();
-        thread::spawn(move || -> Result<(), Error> {
-          loop {
-            if done_rx.try_recv().is_ok() {
-              break;
-            }
-            channel_sender
-              .send(DownloaderChannelMessage::Progress {
-                file_size_bytes: total_size,
-                downloaded_bytes: progress.load(Ordering::Relaxed),
-              })
-              .unwrap();
-            thread::sleep(Duration::from_millis(250));
+    let progress = Arc::new(AtomicU64::new(0));
+    let done_tx = {
+      let (done_tx, done_rx) = mpsc::channel::<()>();
+
+      let progress = progress.clone();
+      let channel_sender = self.channel_sender.clone();
+      let data = data.clone();
+      thread::spawn(move || -> Result<(), Error> {
+        loop {
+          if done_rx.try_recv().is_ok() {
+            break;
           }
-          Ok(())
-        });
+          channel_sender
+            .send(ChannelMessage::Progress {
+              data,
+              file_size_bytes: total,
+              downloaded_bytes: progress.load(Ordering::Relaxed),
+            })
+            .unwrap();
+          thread::sleep(Duration::from_millis(250));
+        }
+        Ok(())
+      });
 
-        Some(done_tx)
-      }
-      false => {
-        channel_sender
-          .send(DownloaderChannelMessage::Start {
-            request_type,
-            progress_enabled: false,
-          })
-          .unwrap();
-
-        None
-      }
+      done_tx
     };
-    Ok((progress, done_tx))
+    Ok(Some((progress, done_tx)))
   }
 
   async fn prep_files(
     &self,
-    request: &PreppedRequest,
-    files: Vec<DownloaderFile>,
+    files: Vec<File>,
+    ignore_size: bool,
   ) -> Result<Vec<PreppedFile>, Error> {
+    if files.len() <= 0 {
+      return Err(Error {
+        code: ErrorCode::NoFiles,
+        message: "No files requested!".into()
+      })
+    };
     let files: Vec<_> = files
       .into_iter()
-      .map(|file| self.prep_file(request, file))
+      .map(|file| self.prep_file(file, ignore_size))
       .collect();
     try_join_all(files).await
   }
 
-  async fn prep_file(
-    &self,
-    request: &PreppedRequest,
-    file: DownloaderFile,
-  ) -> Result<PreppedFile, Error> {
+  async fn prep_file(&self, file: File, ignore_size: bool) -> Result<PreppedFile, Error> {
     // Make sure file name is some
     let file_name = match file.name {
       Some(name) => name,
@@ -185,7 +103,7 @@ impl Downloader {
     debug!("Resolved file_name: {}", &file_name);
 
     // Make sure file.size is not 0
-    let file_size = if file.size == 0 {
+    let file_size = if file.size == 0 && !ignore_size {
       debug!(
         "No file.size for {}, fetching via HEAD request!",
         &file_name
@@ -196,11 +114,7 @@ impl Downloader {
         .send()
         .await
         .map_err(|_| Error::unknown("Failed to fetch file size"))?;
-      if let Some(size) = resp.content_length() {
-        size
-      } else {
-        0
-      }
+      resp.content_length().unwrap_or(0)
     } else {
       file.size
     };
@@ -210,7 +124,7 @@ impl Downloader {
     let final_path = Path::new(&file.dir).join(&file_name);
     let temp_path = Path::new(&file.dir).join(file_name.clone() + self.temp_suffix.as_str());
 
-    if final_path.exists() && request.overwrite {
+    if final_path.exists() && self.overwrite {
       remove_file(&final_path)
         .map_err(|e| Error::unknown(format!("Failed to remove file {}: {e}", &file_name)))?;
     }
@@ -225,44 +139,76 @@ impl Downloader {
     })
   }
 
-  async fn download_files(
-    &self,
-    channel_sender: Sender<DownloaderChannelMessage>,
-    total_size: u64,
-    files: &mut Vec<PreppedFile>,
-    request_type: RequestType,
-  ) -> Result<(), Error> {
+  fn send_start(&self, data: &RequestData, progress_enabled: bool) {
+    self.channel_sender
+      .send(ChannelMessage::Start {
+        data: *data,
+        progress_enabled,
+      })
+      .unwrap();
+  }
+  fn send_finish(&self, data: &RequestData) {
+    self.channel_sender
+      .send(ChannelMessage::Finish { data: *data })
+      .unwrap();
+  }
+
+  // Download
+
+  fn calc_total_size(files: &Vec<PreppedFile>) -> Result<u64, Error> {
+    Ok(files.iter().map(|x| x.size).sum::<u64>())
+  }
+
+  pub async fn download(&self, files: &Vec<File>) -> Result<(), Error> {
+    debug!("Requested download for {} file(s)", files.len());
+    let data = RequestData {
+      id: Uuid::new_v4(),
+      action: Action::Download,
+    };
+
+    // Prepare files array
+    let files = self.prep_files(files.clone(), false).await?;
+    let total_size = Self::calc_total_size(&files)?;
+    debug!("{}", total_size);
+
+    // Download files
     // Progress tracking
-    let (progress, done_tx) =
-      Self::setup_progress(request_type, channel_sender.clone(), total_size)?;
+    let tracking = self.setup_progress(&data, total_size)?;
+    let progress = tracking.clone().map(|(x, _)| x);
+    let done_tx = tracking.map(|(_, x)| x);
+    self.send_start(&data, progress.is_some());
 
     // Start downloads
-    let files: Vec<_> = files
-      .into_iter()
+    let futures: Vec<_> = files
+      .iter()
       .map(|file| {
         debug!("Downloading file URL {}", file.url);
         self.download_file(file, &progress)
       })
       .collect();
-    try_join_all(files).await?;
+    try_join_all(futures).await?;
 
     // Stop progress tracking thread if it was spawned
     if let Some(done_tx) = done_tx {
-      done_tx.send(InternalMessage::Finish).unwrap();
+      done_tx.send(()).unwrap();
     };
+
+    // Download fully done
+    self.send_finish(&data);
+
     Ok(())
   }
 
   async fn download_file(
     &self,
-    file: &mut PreppedFile,
+    file: &PreppedFile,
     progress: &Option<Arc<AtomicU64>>,
   ) -> Result<(), Error> {
     if file.temp_path.exists() {
       remove_file(&file.temp_path)
         .map_err(|e| Error::unknown(format!("Failed to remove file {:?}: {e}", file.temp_path)))?;
     }
-    let mut temp_file = File::create_new(&file.temp_path)
+    let mut temp_file = fs::File::create_new(&file.temp_path)
       .map_err(|e| Error::unknown(format!("Failed to create file {:?}: {e}", file.temp_path)))?;
 
     let resp = match self.reqwest_client.get(&file.url).send().await {
@@ -272,12 +218,6 @@ impl Downloader {
     if !resp.status().is_success() {
       return Err(resp.into());
     }
-
-    // if let Some(content_length) = resp.content_length() {
-    //   if content_length != file.size {
-    //     file.size = content_length
-    //   }
-    // }
 
     let mut stream = resp.bytes_stream();
 
@@ -309,36 +249,42 @@ impl Downloader {
     Ok(())
   }
 
-  /// Removes all files that verified successfully from passed array
-  fn verify_files(
-    files: &mut Vec<PreppedFile>,
-    channel_sender: Sender<DownloaderChannelMessage>,
-  ) -> () {
-    let (tx, rx) = mpsc::channel();
-    let total_files = files.len() as u32;
-    thread::spawn(move || {
-      let mut verified_files: u32 = 0;
-      while rx.recv().is_ok() && verified_files < total_files {
-        verified_files += 1;
-        channel_sender
-          .send(DownloaderChannelMessage::Verify {
-            total_files,
-            verified_files,
-          })
-          .unwrap();
-      }
-    });
+  // Verify
 
-    let keep = files
+  /// This function operates in place, removing all files that passed verification.
+  /// Returns a vector with each file verification results.
+  pub async fn verify(&self, files: &mut Vec<File>) -> Result<Vec<Result<(), Error>>, Error> {
+    debug!("Requested verify for {} file(s)", files.len());
+    let data = RequestData {
+      id: Uuid::new_v4(),
+      action: Action::Verify,
+    };
+
+    // Prepare files array
+    let prep_files = self.prep_files(files.clone(), true).await?;
+    let total_size: u64 = prep_files.len() as u64;
+
+    // Progress tracking
+    let (progress, done_tx) = self.setup_progress(&data, total_size)?.unwrap();
+    self.send_start(&data, true);
+
+    let results = prep_files
       .par_iter()
       .map(|file| {
-        let result = Self::verify_file(file).is_err(); // Only keep bad files
-        tx.send(()).unwrap();
+        let result = Self::verify_file(file); // Only keep bad files
+        progress.fetch_add(1, Ordering::Relaxed);
         result
       })
-      .collect::<Vec<bool>>();
-    let mut iter = keep.iter();
-    files.retain(|_| *iter.next().unwrap());
+      .collect::<Vec<Result<(), Error>>>();
+    let mut iter = results.iter().map(|result| result.is_err());
+
+    // Stop progress tracking thread
+    done_tx.send(()).unwrap();
+    self.send_finish(&data);
+
+    files.retain(|_| iter.next().unwrap());
+
+    Ok(results)
   }
 
   fn verify_file(file: &PreppedFile) -> Result<(), Error> {
@@ -347,12 +293,12 @@ impl Downloader {
     };
     let verify = match file.verify.clone() {
       Some(val) => val,
-      None => unreachable!(),
+      None => return Err(format!("Couldn't verify file {}! (no verify data)", file.name).into()),
     };
 
     let mut hasher = Hasher::new(verify.algorithm);
 
-    let fsfile = File::open(&file.final_path)?;
+    let fsfile = fs::File::open(&file.final_path)?;
     let mut reader = BufReader::new(fsfile);
     let mut buf = [0u8; 512];
     while let Ok(n) = reader.read(&mut buf) {

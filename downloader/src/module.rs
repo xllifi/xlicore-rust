@@ -1,7 +1,8 @@
-use std::{path::PathBuf, sync::mpsc::Sender};
+use std::{fmt::Display, path::PathBuf, sync::mpsc::Sender};
 
 use reqwest::Client;
 use serde::Serialize;
+use uuid::Uuid;
 
 use crate::hasher::Algorithm;
 
@@ -10,48 +11,27 @@ pub struct Downloader {
   pub temp_suffix: String,
   /// Internal field, don't change
   pub reqwest_client: Client,
+  /// For progress reporting. See https://doc.rust-lang.org/rust-by-example/std_misc/channels.html
+  pub channel_sender: Sender<ChannelMessage>,
+  /// Should downloaded files overwrite existing.  
+  /// Note that files will be overwritten anyway if requested file's hash is different from existing.
+  pub overwrite: bool,
 }
 
-#[derive(Clone)]
-pub struct DownloaderRequest {
-  pub request_type: RequestType,
-  pub retries: u8,
-  /// Should downloaded files overwrite existing
-  /// 
-  /// Note that files will be overwritten anyway if requested file's hash is different from existing.
-  pub overwrite: bool,
-  /// Channel's sender. See https://doc.rust-lang.org/rust-by-example/std_misc/channels.html
-  pub channel_sender: Sender<DownloaderChannelMessage>,
-  pub files: Vec<DownloaderFile>,
-}
 /// A struct for internal use only.
-#[derive(Clone)]
-pub struct PreppedRequest {
-  pub request_type: RequestType,
-  /// Should downloaded files overwrite existing
-  /// 
-  /// Note that files will be overwritten anyway if requested file's hash is different from existing.
-  pub overwrite: bool,
-}
-#[derive(Serialize, Debug, Clone, Copy)]
-#[serde(rename_all = "snake_case")]
-pub enum RequestType {
-  Asset,
-  Library,
-  Java,
-  Modpack,
-  Meta,
-  Loader,
-  Game,
+#[derive(Clone, Copy, Serialize, Debug)]
+pub struct RequestData {
+  pub id: Uuid,
+  pub action: Action,
 }
 
 #[derive(Clone, Serialize)]
-pub struct DownloaderFile {
+pub struct File {
   pub url: String,
   pub dir: String,
   pub name: Option<String>,
   pub size: u64,
-  pub verify: Option<DownloaderVerify>,
+  pub verify: Option<Verify>,
 }
 /// A struct for internal use only.
 #[derive(Clone, Debug)]
@@ -61,45 +41,49 @@ pub struct PreppedFile {
   pub temp_path: PathBuf,
   pub name: String,
   pub size: u64,
-  pub verify: Option<DownloaderVerify>,
+  pub verify: Option<Verify>,
 }
 
 #[derive(Clone, Serialize, Debug)]
-pub struct DownloaderVerify {
+pub struct Verify {
   pub hash: String,
   pub algorithm: Algorithm,
 }
 
 #[derive(Clone, Serialize, Debug)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "action", content = "data")]
-pub enum DownloaderChannelMessage {
+pub enum ChannelMessage {
   Start {
+    data: RequestData,
     progress_enabled: bool,
-    request_type: RequestType,
   },
   Progress {
+    data: RequestData,
     file_size_bytes: u64,
     downloaded_bytes: u64,
   },
   Verify {
+    data: RequestData,
     total_files: u32,
     verified_files: u32,
   },
   Finish {
-    success: bool,
-    failed_files: Option<Vec<String>>,
+    data: RequestData,
   }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Copy, Serialize, Debug)]
 #[serde(rename_all = "snake_case")]
-pub enum ProgressType {
+pub enum Action {
   Download,
   Verify
 }
 
-#[derive(Clone, Debug)]
-pub enum InternalMessage {
-  RecalcSize,
-  Finish,
+impl Display for Action {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Action::Download => write!(f, "download"),
+      Action::Verify => write!(f, "verify"),
+    }
+  }
 }
