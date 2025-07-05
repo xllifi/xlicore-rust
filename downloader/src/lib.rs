@@ -1,4 +1,3 @@
-pub mod error;
 pub mod hasher;
 pub mod helpers;
 pub mod module;
@@ -15,12 +14,12 @@ use std::{
   time::Duration,
 };
 
-use error::*;
 use futures_util::{StreamExt, future::try_join_all};
 use log::debug;
 use module::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use reqwest::Client;
+use shared::error::{Error, ErrorCode};
 use uuid::Uuid;
 
 use crate::{hasher::Hasher, module::File};
@@ -49,12 +48,12 @@ impl Downloader {
 
     let progress = Arc::new(AtomicU64::new(0));
     let done_tx = {
-      let (done_tx, done_rx) = mpsc::channel::<()>();
+      let (done_tx, done_rx) = mpsc::channel();
 
       let progress = progress.clone();
       let channel_sender = self.channel_sender.clone();
       let data = data.clone();
-      thread::spawn(move || -> Result<(), Error> {
+      thread::spawn(move || {
         loop {
           if done_rx.try_recv().is_ok() {
             break;
@@ -68,7 +67,6 @@ impl Downloader {
             .unwrap();
           thread::sleep(Duration::from_millis(250));
         }
-        Ok(())
       });
 
       done_tx
@@ -78,42 +76,34 @@ impl Downloader {
 
   async fn prep_files(
     &self,
-    files: Vec<File>,
+    files: &Vec<File>,
     ignore_size: bool,
   ) -> Result<Vec<PreppedFile>, Error> {
     if files.len() <= 0 {
-      return Err(Error {
-        code: ErrorCode::NoFiles,
-        message: "No files requested!".into()
-      })
+      return Err("No files requested!".into());
     };
     let files: Vec<_> = files
-      .into_iter()
+      .iter()
       .map(|file| self.prep_file(file, ignore_size))
       .collect();
     try_join_all(files).await
   }
 
-  async fn prep_file(&self, file: File, ignore_size: bool) -> Result<PreppedFile, Error> {
+  async fn prep_file(&self, file: &File, ignore_size: bool) -> Result<PreppedFile, Error> {
     // Make sure file name is some
-    let file_name = match file.name {
-      Some(name) => name,
+    let file_name = match &file.name {
+      Some(name) => name.clone(),
       None => helpers::filename_from_url(&file.url)?,
     };
     debug!("Resolved file_name: {}", &file_name);
 
-    // Make sure file.size is not 0
+    // Try to make sure file.size is not 0
     let file_size = if file.size == 0 && !ignore_size {
       debug!(
         "No file.size for {}, fetching via HEAD request!",
         &file_name
       );
-      let resp = self
-        .reqwest_client
-        .head(&file.url)
-        .send()
-        .await
-        .map_err(|_| Error::unknown("Failed to fetch file size"))?;
+      let resp = self.reqwest_client.head(&file.url).send().await?;
       resp.content_length().unwrap_or(0)
     } else {
       file.size
@@ -125,22 +115,26 @@ impl Downloader {
     let temp_path = Path::new(&file.dir).join(file_name.clone() + self.temp_suffix.as_str());
 
     if final_path.exists() && self.overwrite {
-      remove_file(&final_path)
-        .map_err(|e| Error::unknown(format!("Failed to remove file {}: {e}", &file_name)))?;
+      remove_file(&final_path).map_err(|e| Error {
+        code: ErrorCode::Unknown,
+        message: format!("Failed to remove file {}", &file_name),
+        verbose: Some(e.to_string()),
+      })?;
     }
 
     Ok(PreppedFile {
-      url: file.url,
+      url: file.url.clone(),
       final_path,
       temp_path,
       name: file_name,
       size: file_size,
-      verify: file.verify,
+      verify: file.verify.clone(),
     })
   }
 
   fn send_start(&self, data: &RequestData, progress_enabled: bool) {
-    self.channel_sender
+    self
+      .channel_sender
       .send(ChannelMessage::Start {
         data: *data,
         progress_enabled,
@@ -148,7 +142,8 @@ impl Downloader {
       .unwrap();
   }
   fn send_finish(&self, data: &RequestData) {
-    self.channel_sender
+    self
+      .channel_sender
       .send(ChannelMessage::Finish { data: *data })
       .unwrap();
   }
@@ -161,30 +156,23 @@ impl Downloader {
 
   pub async fn download(&self, files: &Vec<File>) -> Result<(), Error> {
     debug!("Requested download for {} file(s)", files.len());
-    let data = RequestData {
-      id: Uuid::new_v4(),
-      action: Action::Download,
-    };
+    let req_data = RequestData::new(Action::Download);
 
     // Prepare files array
-    let files = self.prep_files(files.clone(), false).await?;
+    let files = self.prep_files(files, false).await?;
     let total_size = Self::calc_total_size(&files)?;
-    debug!("{}", total_size);
 
     // Download files
     // Progress tracking
-    let tracking = self.setup_progress(&data, total_size)?;
+    let tracking = self.setup_progress(&req_data, total_size)?;
     let progress = tracking.clone().map(|(x, _)| x);
     let done_tx = tracking.map(|(_, x)| x);
-    self.send_start(&data, progress.is_some());
+    self.send_start(&req_data, progress.is_some());
 
     // Start downloads
     let futures: Vec<_> = files
       .iter()
-      .map(|file| {
-        debug!("Downloading file URL {}", file.url);
-        self.download_file(file, &progress)
-      })
+      .map(|file| self.download_file(file, &progress))
       .collect();
     try_join_all(futures).await?;
 
@@ -194,8 +182,8 @@ impl Downloader {
     };
 
     // Download fully done
-    self.send_finish(&data);
-
+    self.send_finish(&req_data);
+    debug!("Successfuly downloaded {} file(s)", files.len());
     Ok(())
   }
 
@@ -204,17 +192,13 @@ impl Downloader {
     file: &PreppedFile,
     progress: &Option<Arc<AtomicU64>>,
   ) -> Result<(), Error> {
+    debug!("Starting to download {}", file.name);
     if file.temp_path.exists() {
-      remove_file(&file.temp_path)
-        .map_err(|e| Error::unknown(format!("Failed to remove file {:?}: {e}", file.temp_path)))?;
+      remove_file(&file.temp_path)?;
     }
-    let mut temp_file = fs::File::create_new(&file.temp_path)
-      .map_err(|e| Error::unknown(format!("Failed to create file {:?}: {e}", file.temp_path)))?;
+    let mut temp_file = fs::File::create_new(&file.temp_path)?;
 
-    let resp = match self.reqwest_client.get(&file.url).send().await {
-      Ok(res) => res,
-      Err(err) => return Err(Error::unknown(err.to_string())),
-    };
+    let resp = self.reqwest_client.get(&file.url).send().await?;
     if !resp.status().is_success() {
       return Err(resp.into());
     }
@@ -222,30 +206,16 @@ impl Downloader {
     let mut stream = resp.bytes_stream();
 
     while let Some(item) = stream.next().await {
-      let chunk = item.or(Err(Error {
-        code: ErrorCode::Unknown,
-        message: format!(
-          "Failed to download file '{}'",
-          file.final_path.to_str().unwrap()
-        ),
-      }))?;
-      temp_file
-        .write_all(&chunk)
-        .map_err(|e| Error::unknown(format!("Failed to write to file: {e}")))?;
+      let chunk = item?;
+      temp_file.write_all(&chunk)?;
       if let Some(progress) = progress {
         progress.fetch_add(chunk.len() as u64, Ordering::Relaxed);
       }
     }
 
-    rename(&file.temp_path, &file.final_path).map_err(|e| {
-      Error::unknown(format!(
-        "Failed to rename {:?} to  {:?}: {e}",
-        file.temp_path, file.final_path
-      ))
-    })?;
+    rename(&file.temp_path, &file.final_path)?;
 
     debug!("Successfuly downloaded {}", file.name);
-
     Ok(())
   }
 
@@ -261,7 +231,7 @@ impl Downloader {
     };
 
     // Prepare files array
-    let prep_files = self.prep_files(files.clone(), true).await?;
+    let prep_files = self.prep_files(files, true).await?;
     let total_size: u64 = prep_files.len() as u64;
 
     // Progress tracking
@@ -278,22 +248,31 @@ impl Downloader {
       .collect::<Vec<Result<(), Error>>>();
     let mut iter = results.iter().map(|result| result.is_err());
 
+    files.retain(|_| iter.next().unwrap());
+
     // Stop progress tracking thread
     done_tx.send(()).unwrap();
     self.send_finish(&data);
 
-    files.retain(|_| iter.next().unwrap());
-
+    debug!("Finished verifying {} file(s)", files.len());
     Ok(results)
   }
 
   fn verify_file(file: &PreppedFile) -> Result<(), Error> {
     if !file.final_path.exists() {
-      return Err(Error::unknown("File doesn't exist!"));
+      return Err(Error::verify_err(
+        &file.name,
+        format!("File doesn't exist")
+      ));
     };
     let verify = match file.verify.clone() {
       Some(val) => val,
-      None => return Err(format!("Couldn't verify file {}! (no verify data)", file.name).into()),
+      None => {
+        return Err(Error::verify_err(
+          &file.name,
+          format!("Correct hash not supplied"),
+        ));
+      }
     };
 
     let mut hasher = Hasher::new(verify.algorithm);
@@ -308,12 +287,12 @@ impl Downloader {
       hasher.update(&buf[..n]);
     }
 
-    let hash = hasher.finalize();
-    if hex::encode(hash) != verify.hash {
-      return Err(Error {
-        code: ErrorCode::Unknown,
-        message: format!("Couldn't verify file {}! (hashes mismatch)", file.name),
-      });
+    let hash = hex::encode(hasher.finalize());
+    if hash != verify.hash {
+      return Err(Error::verify_err(
+        &file.name,
+        format!("Hashes {hash} and {} don't match", verify.hash),
+      ));
     }
 
     Ok(())

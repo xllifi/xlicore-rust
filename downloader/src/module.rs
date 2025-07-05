@@ -25,6 +25,15 @@ pub struct RequestData {
   pub action: Action,
 }
 
+impl RequestData {
+  pub fn new(action: Action) -> Self {
+    Self {
+      id: Uuid::new_v4(),
+      action,
+    }
+  }
+}
+
 #[derive(Clone, Serialize)]
 pub struct File {
   pub url: String,

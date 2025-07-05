@@ -1,4 +1,4 @@
-use crate::error::{Error, ErrorCode};
+use shared::error::{Error, ErrorCode};
 
 /// Get filename from the URL.
 ///
@@ -11,6 +11,7 @@ pub fn filename_from_url(url: &str) -> Result<String, Error> {
     .ok_or(Error {
       code: ErrorCode::Unknown,
       message: format!("Filename could not be derived from URL {}!", url),
+      verbose: None,
     })?
     .split('?') // Make sure no query parameters are in filename
     .next()
