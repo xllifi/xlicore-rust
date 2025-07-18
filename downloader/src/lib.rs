@@ -24,6 +24,18 @@ use uuid::Uuid;
 
 use crate::{hasher::Hasher, module::File};
 
+pub struct Downloader {
+  /// Suffix that all partially downloaded files will have
+  pub temp_suffix: String,
+  /// Internal field, don't change
+  pub reqwest_client: Client,
+  /// For progress reporting. See https://doc.rust-lang.org/rust-by-example/std_misc/channels.html
+  pub channel_sender: Sender<ChannelMessage>,
+  /// Should downloaded files overwrite existing.  
+  /// Note that files will be overwritten anyway if requested file's hash is different from existing.
+  pub overwrite: bool,
+}
+
 impl Downloader {
   pub fn new(temp_suffix: String, channel_sender: Sender<ChannelMessage>, overwrite: bool) -> Self {
     Downloader {
@@ -260,10 +272,7 @@ impl Downloader {
 
   fn verify_file(file: &PreppedFile) -> Result<(), Error> {
     if !file.final_path.exists() {
-      return Err(Error::verify_err(
-        &file.name,
-        format!("File doesn't exist")
-      ));
+      return Err(Error::verify_err(&file.name, format!("File doesn't exist")));
     };
     let verify = match file.verify.clone() {
       Some(val) => val,

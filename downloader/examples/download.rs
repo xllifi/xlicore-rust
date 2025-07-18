@@ -1,4 +1,4 @@
-use downloader::{hasher::Algorithm, module::*};
+use downloader::{hasher::Algorithm, module::*, Downloader};
 use log::info;
 use std::{sync::mpsc, thread};
 
