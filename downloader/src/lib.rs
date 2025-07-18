@@ -166,7 +166,7 @@ impl Downloader {
     Ok(files.iter().map(|x| x.size).sum::<u64>())
   }
 
-  pub async fn download(&self, files: &Vec<File>) -> Result<(), Error> {
+  pub async fn download(&self, files: &Vec<File>) -> Result<Vec<PreppedFile>, Error> {
     debug!("Requested download for {} file(s)", files.len());
     let req_data = RequestData::new(Action::Download);
 
@@ -196,7 +196,7 @@ impl Downloader {
     // Download fully done
     self.send_finish(&req_data);
     debug!("Successfuly downloaded {} file(s)", files.len());
-    Ok(())
+    Ok(files)
   }
 
   async fn download_file(
