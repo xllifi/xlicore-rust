@@ -15,6 +15,7 @@ pub enum ErrorCode {
   ReqwestError,
   IOError,
   HttpBadStatus,
+  SerdeJsonError,
 }
 
 impl Error {
@@ -89,6 +90,24 @@ impl From<reqwest::Response> for Error {
           "".into()
         }
       ))
+    }
+  }
+}
+
+impl From<serde_json::Error> for Error {
+  fn from(err: serde_json::Error) -> Self {
+    Error {
+      code: ErrorCode::SerdeJsonError,
+      message: format!(
+        "Serde encountered {} while parsing JSON",
+        match err.classify() {
+          serde_json::error::Category::Io => "an Input/Output error",
+          serde_json::error::Category::Syntax => "a syntax error",
+          serde_json::error::Category::Data => "an incorrect data error",
+          serde_json::error::Category::Eof => "a premature end-of-file",
+        }
+      ),
+      verbose: Some(err.to_string())
     }
   }
 }
