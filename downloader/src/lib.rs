@@ -33,7 +33,7 @@ pub struct Downloader {
   /// For progress reporting. See https://doc.rust-lang.org/rust-by-example/std_misc/channels.html
   pub channel_sender: Sender<ChannelMessage>,
   /// Should downloaded files overwrite existing.  
-  /// Note that files will be overwritten anyway if requested file's hash is different from existing.
+  /// Note that files will (not) be overwritten anyway if requested file's hash is different from existing. This hasn't been implemented yet.
   pub overwrite: bool,
 }
 
