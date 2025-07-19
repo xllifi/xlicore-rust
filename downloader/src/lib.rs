@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::{hasher::Hasher, module::File};
 
+#[derive(Clone)]
 pub struct Downloader {
   /// Suffix that all partially downloaded files will have
   pub temp_suffix: String,
