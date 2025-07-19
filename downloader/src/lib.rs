@@ -205,6 +205,15 @@ impl Downloader {
     file: &PreppedFile,
     progress: &Option<Arc<AtomicU64>>,
   ) -> Result<(), Error> {
+    if file.final_path.exists() {
+      if self.overwrite {
+        remove_file(&file.final_path)?;
+      } else {
+        #[rustfmt::skip]
+        debug!("Skipping download for file {} because it exists and overwrite not requested", file.name);
+        return Ok(());
+      }
+    }
     debug!("Starting to download {}", file.name);
     if file.temp_path.exists() {
       remove_file(&file.temp_path)?;
