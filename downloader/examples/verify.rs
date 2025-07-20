@@ -19,6 +19,7 @@ async fn main() {
         hash: "eb1e1eb47cb740012fc82eacc394859463684132".into(),
         algorithm: Algorithm::Sha1,
       }),
+      check_etag: true,
     },
     File {
       url: "https://piston-data.mojang.com/v1/objects/8d83af626cae1865deaf55fbf96934be4886fd45/client.txt".into(),
@@ -29,6 +30,7 @@ async fn main() {
         hash: "8d83af626cae1865deaf55fbf96934be4886fd45".into(),
         algorithm: Algorithm::Sha1,
       }),
+      check_etag: true,
     },
     File {
       url: "https://piston-data.mojang.com/v1/objects/05e4b48fbc01f0385adb74bcff9751d34552486c/server.jar".into(),
@@ -39,6 +41,7 @@ async fn main() {
         hash: "05e4b48fbc01f0385adb74bcff9751d34552486c".into(),
         algorithm: Algorithm::Sha1,
       }),
+      check_etag: true,
     },
   ];
 
