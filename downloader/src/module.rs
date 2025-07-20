@@ -27,6 +27,7 @@ pub struct File {
   pub name: Option<String>,
   pub size: u64,
   pub verify: Option<Verify>,
+  pub check_etag: bool,
 }
 /// A struct for internal use only.
 #[derive(Clone, Debug)]
@@ -37,6 +38,10 @@ pub struct PreppedFile {
   pub name: String,
   pub size: u64,
   pub verify: Option<Verify>,
+  /// true: (don't overwrite) both last and current etags exist and are the same  
+  /// 
+  /// false: (do overwrite) either one of last or current etags don't exist or they differ
+  pub etags_match: bool,
 }
 
 #[derive(Clone, Serialize, Debug)]

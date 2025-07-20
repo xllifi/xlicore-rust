@@ -4,7 +4,7 @@ pub mod module;
 use std::{
   fs::{self, create_dir_all, remove_file, rename},
   io::{BufReader, Read, Write},
-  path::Path,
+  path::{Path, PathBuf},
   sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
@@ -18,6 +18,7 @@ use futures_util::{StreamExt, future::try_join_all};
 use log::debug;
 use module::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use reqwest::{Client, header::HeaderMap};
 use serde::de::DeserializeOwned;
 use shared::error::{Error, ErrorCode};
 use uuid::Uuid;
@@ -87,6 +88,41 @@ impl Downloader {
     Ok(Some((progress, done_tx)))
   }
 
+  /// Returns tuple (last_etag, cur_etag)
+  fn get_etag<P: AsRef<Path>>(
+    file_path: P,
+    headers: &HeaderMap,
+  ) -> Result<(Option<String>, Option<String>), Error> {
+    let mut os_str = file_path.as_ref().to_owned().into_os_string();
+    os_str.push(".etag");
+    let etag_path: PathBuf = os_str.into();
+
+    // Get last etag
+    let last_etag = match etag_path.exists() {
+      true => {
+        let mut file = fs::File::open(&etag_path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        Some(contents)
+      }
+      false => None,
+    };
+
+    // Get current etag
+    let cur_etag = headers
+      .get("etag")
+      .and_then(|x| x.to_str().ok())
+      .and_then(|x| Some(String::from(x)));
+
+    // Save current etag
+    if let Some(cur_etag) = &cur_etag {
+      let mut etag_file = fs::File::create(&etag_path)?;
+      etag_file.write(cur_etag.as_bytes())?;
+    }
+
+    Ok((last_etag, cur_etag))
+  }
+
   async fn prep_files(
     &self,
     files: &Vec<File>,
@@ -109,23 +145,43 @@ impl Downloader {
       None => helpers::filename_from_url(&file.url)?,
     };
     debug!("Resolved file_name: {}", &file_name);
-
-    // Try to make sure file.size is not 0
-    let file_size = if file.size == 0 && !ignore_size {
-      debug!(
-        "No file.size for {}, fetching via HEAD request!",
-        &file_name
-      );
-      let resp = self.reqwest_client.head(&file.url).send().await?;
-      resp.content_length().unwrap_or(0)
-    } else {
-      file.size
-    };
-
     // Make sure dirs exist
     create_dir_all(&file.dir)?;
     let final_path = Path::new(&file.dir).join(&file_name);
     let temp_path = Path::new(&file.dir).join(file_name.clone() + self.temp_suffix.as_str());
+
+    let recalc_file_size = file.size == 0 && !ignore_size;
+
+    let head_resp = match recalc_file_size || file.check_etag {
+      true => Some(self.reqwest_client.head(&file.url).send().await?),
+      false => None,
+    };
+
+    let etags_match = if file.check_etag {
+      match Self::get_etag(&final_path, head_resp.as_ref().unwrap().headers())? {
+        (Some(last), Some(current)) => last == current,
+        _ => false,
+      }
+    } else {
+      false
+    };
+
+    // Try to make sure file.size is not 0
+    let file_size: u64 = if recalc_file_size {
+      debug!(
+        "No file.size for {}, fetching via HEAD request!",
+        &file_name
+      );
+      head_resp
+        .unwrap()
+        .headers()
+        .get("content-length")
+        .and_then(|x| x.to_str().ok())
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(0)
+    } else {
+      file.size
+    };
 
     if final_path.exists() && self.overwrite {
       remove_file(&final_path).map_err(|e| Error {
@@ -142,6 +198,7 @@ impl Downloader {
       name: file_name,
       size: file_size,
       verify: file.verify.clone(),
+      etags_match,
     })
   }
 
@@ -213,7 +270,8 @@ impl Downloader {
     progress: &Option<Arc<AtomicU64>>,
   ) -> Result<(), Error> {
     if file.final_path.exists() {
-      if self.overwrite {
+      if self.overwrite || !file.etags_match {
+        if !self.overwrite { debug!("Overwriting file because etags don't match!") }
         remove_file(&file.final_path)?;
       } else {
         #[rustfmt::skip]
