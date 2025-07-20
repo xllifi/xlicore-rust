@@ -18,7 +18,7 @@ use futures_util::{StreamExt, future::try_join_all};
 use log::debug;
 use module::*;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use reqwest::Client;
+use serde::de::DeserializeOwned;
 use shared::error::{Error, ErrorCode};
 use uuid::Uuid;
 
@@ -165,6 +165,13 @@ impl Downloader {
 
   fn calc_total_size(files: &Vec<PreppedFile>) -> Result<u64, Error> {
     Ok(files.iter().map(|x| x.size).sum::<u64>())
+  }
+
+  pub async fn download_single_json<T: DeserializeOwned>(&self, file: File) -> Result<T, Error> {
+    let files = self.download(&vec![file]).await?;
+    let file_path = &files.first().unwrap().final_path;
+    let fsfile = fs::File::open(file_path)?;
+    Ok(serde_json::from_reader(fsfile)?)
   }
 
   pub async fn download(&self, files: &Vec<File>) -> Result<Vec<PreppedFile>, Error> {
